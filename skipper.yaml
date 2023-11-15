@@ -2,7 +2,7 @@ registry: quay.io
 build-container-image: amd-gpu-operator-build
 
 containers:
-  kmm-operator-build: Dockerfile.amd-gpu-operator-build
+  amd-gpu-operator-build: Dockerfile.amd-gpu-operator-build
 volumes:
     - $HOME/.cache/go-build:$HOME/.cache/go-build
     - $HOME/go/pkg:/go/pkg
