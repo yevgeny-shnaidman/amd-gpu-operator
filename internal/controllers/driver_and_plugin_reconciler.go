@@ -22,12 +22,15 @@ import (
 
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	gpuev1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha"
+	appsv1 "k8s.io/api/apps/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -112,9 +115,48 @@ func (r *DriverAndPluginReconciler) getRequestedGPUEnablement(ctx context.Contex
 }
 
 func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
-	return nil
+	kmmMod := &kmmv1beta1.Module{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: gpue.Namespace,
+			Name:      gpue.Name + "-kmm-module",
+		},
+	}
+	logger := log.FromContext(ctx)
+	opRes, err := controllerutil.CreateOrPatch(ctx, r.client, kmmMod, func() error {
+		return r.setKMMAsDesired(ctx, kmmMod, gpue)
+	})
+
+	if err == nil {
+		logger.Info("Reconciled KMM Module", "name", kmmMod.Name, "result", opRes)
+	}
+
+	return err
+
+}
+func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, gpue *gpuev1alpha1.GPUEnablement) error {
+	mod.Spec.ModuleLoader.Container = gpue.Spec.DriversConfig
+	mod.Spec.ImageRepoSecret = gpue.Spec.ImageRepoSecret
+	mod.Spec.Selector = gpue.Spec.Selector
+	return controllerutil.SetControllerReference(gpue, mod, r.scheme)
 }
 
 func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
-	return nil
+	devicePluginDS := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: gpue.Namespace,
+			Name:      gpue.Name + "device-plugin",
+		},
+	}
+	logger := log.FromContext(ctx)
+	opRes, err := controllerutil.CreateOrPatch(ctx, r.client, devicePluginDS, func() error {
+		return r.setDevicePluginAsDesired(ctx, devicePluginDS, gpue)
+	})
+	if err == nil {
+		logger.Info("Reconciled Device Plugin daemonset", "name", devicePluginDS.Name, "result", opRes)
+	}
+	return err
+}
+
+func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context, ds *appsv1.DaemonSet, gpue *gpuev1alpha1.GPUEnablement) error {
+	return controllerutil.SetControllerReference(gpue, ds, r.scheme)
 }
