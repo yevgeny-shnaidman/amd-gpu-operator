@@ -6,6 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 type LeaderElection struct {
@@ -40,6 +41,8 @@ func (c *Config) ManagerOptions() *manager.Options {
 		HealthProbeBindAddress: c.HealthProbeBindAddress,
 		LeaderElection:         c.LeaderElection.Enabled,
 		LeaderElectionID:       c.LeaderElection.ResourceID,
-		MetricsBindAddress:     c.MetricsBindAddress,
+		Metrics: server.Options {
+			BindAddress:     c.MetricsBindAddress,
+		},
 	}
 }

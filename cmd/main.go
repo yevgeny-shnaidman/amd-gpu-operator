@@ -31,6 +31,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
+	gpuev1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/cmd"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/config"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/controllers"
@@ -45,6 +46,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(gpuev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(kmmv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -83,11 +85,8 @@ func main() {
 	}
 
 	client := mgr.GetClient()
-	//filterAPI := filter.New(client)
-	eventRecorder := mgr.GetEventRecorderFor("amd-gpu")
 	dpc := controllers.NewDriverAndPluginReconciler(
 		client,
-		eventRecorder,
 		scheme)
 	if err = dpc.SetupWithManager(mgr); err != nil {
 		cmd.FatalError(setupLogger, err, "unable to create controller", "name", controllers.DriverAndPluginReconcilerName)
