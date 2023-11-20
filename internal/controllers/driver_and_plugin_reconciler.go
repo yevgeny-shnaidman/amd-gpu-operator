@@ -119,7 +119,7 @@ func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1a
 	kmmMod := &kmmv1beta1.Module{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: gpue.Namespace,
-			Name:      gpue.Name + "-kmm-module",
+			Name:      gpue.Name,
 		},
 	}
 	logger := log.FromContext(ctx)
