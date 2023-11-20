@@ -41,8 +41,8 @@ func (c *Config) ManagerOptions() *manager.Options {
 		HealthProbeBindAddress: c.HealthProbeBindAddress,
 		LeaderElection:         c.LeaderElection.Enabled,
 		LeaderElectionID:       c.LeaderElection.ResourceID,
-		Metrics: server.Options {
-			BindAddress:     c.MetricsBindAddress,
+		Metrics: server.Options{
+			BindAddress: c.MetricsBindAddress,
 		},
 	}
 }

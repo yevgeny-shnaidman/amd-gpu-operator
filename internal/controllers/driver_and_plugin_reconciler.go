@@ -23,12 +23,12 @@ import (
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	gpuev1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/pointer"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -159,61 +159,76 @@ func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue
 }
 
 func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context, ds *appsv1.DaemonSet, gpue *gpuev1alpha1.GPUEnablement) error {
-        if ds == nil {
-                return fmt.Errorf("input daemonset cannot be nil")
-        }
+	if ds == nil {
+		return fmt.Errorf("input daemonset cannot be nil")
+	}
 
-        containerVolumeMounts := []v1.VolumeMount{
-                {
-                        Name:      kubeletDevicePluginsVolumeName,
-                        MountPath: kubeletDevicePluginsPath,
-                },
-        }
+	containerVolumeMounts := []v1.VolumeMount{
+		{
+			Name:      kubeletDevicePluginsVolumeName,
+			MountPath: kubeletDevicePluginsPath,
+		},
+		{
+			Name:      "sys",
+			MountPath: "/sys",
+		},
+	}
 
-        hostPathDirectory := v1.HostPathDirectory
+	hostPathDirectory := v1.HostPathDirectory
 
-        devicePluginVolume := v1.Volume{
-                Name: kubeletDevicePluginsVolumeName,
-                VolumeSource: v1.VolumeSource{
-                        HostPath: &v1.HostPathVolumeSource{
-                                Path: kubeletDevicePluginsPath,
-                                Type: &hostPathDirectory,
-                        },
-                },
-        }
+	devicePluginVolumes := []v1.Volume{
+		{
+			Name: kubeletDevicePluginsVolumeName,
+			VolumeSource: v1.VolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: kubeletDevicePluginsPath,
+					Type: &hostPathDirectory,
+				},
+			},
+		},
+		{
+			Name: "sys",
+			VolumeSource: v1.VolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: "/sys",
+					Type: &hostPathDirectory,
+				},
+			},
+		},
+	}
 	standardLabels := map[string]string{devicePluginLabel: gpue.Name}
-        nodeSelector := map[string]string{getKMMModuleReadyNodeLabel(gpue.Namespace, gpue.Name): ""}
+	nodeSelector := map[string]string{getKMMModuleReadyNodeLabel(gpue.Namespace, gpue.Name): ""}
 	ds.Spec = appsv1.DaemonSetSpec{
-                Selector: &metav1.LabelSelector{MatchLabels: standardLabels},
-                Template: v1.PodTemplateSpec{
-                        ObjectMeta: metav1.ObjectMeta{
-                                Labels:     standardLabels,
-                        },
-                        Spec: v1.PodSpec{
-                                Containers: []v1.Container{
-                                        {
-						//Args:            mod.Spec.DevicePlugin.Container.Args,
-                                                //Command:         mod.Spec.DevicePlugin.Container.Command,
-                                                //Env:             mod.Spec.DevicePlugin.Container.Env,
-                                                Name:            "device-plugin",
-                                                Image:           gpue.Spec.DevicePluginImage,
-                                                ImagePullPolicy: v1.PullAlways,
-                                                //Resources:       mod.Spec.DevicePlugin.Container.Resources,
-                                                SecurityContext: &v1.SecurityContext{Privileged: pointer.Bool(true)},
-                                                VolumeMounts:    containerVolumeMounts,
-                                        },
-                                },
-                                PriorityClassName:  "system-node-critical",
-                                //ImagePullSecrets:   getPodPullSecrets(mod.Spec.ImageRepoSecret),
-                                NodeSelector:       nodeSelector,
-                                //ServiceAccountName: serviceAccountName,
-                                Volumes:            []v1.Volume{devicePluginVolume},
-                        },
-                },
-        }
+		Selector: &metav1.LabelSelector{MatchLabels: standardLabels},
+		Template: v1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: standardLabels,
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name:            "device-plugin",
+						Image:           gpue.Spec.DevicePluginImage,
+						ImagePullPolicy: v1.PullAlways,
+						SecurityContext: &v1.SecurityContext{Privileged: pointer.Bool(true)},
+						VolumeMounts:    containerVolumeMounts,
+					},
+				},
+				PriorityClassName: "system-node-critical",
+				NodeSelector:      nodeSelector,
+				Tolerations: []v1.Toleration{
+					{
+						Key:      "CriticalAddonsOnly",
+						Operator: v1.TolerationOpExists,
+					},
+				},
+				Volumes: devicePluginVolumes,
+			},
+		},
+	}
 	return controllerutil.SetControllerReference(gpue, ds, r.scheme)
 }
 
 func getKMMModuleReadyNodeLabel(namespace, moduleName string) string {
-        return fmt.Sprintf("kmm.node.kubernetes.io/%s.%s.ready", namespace, moduleName)
+	return fmt.Sprintf("kmm.node.kubernetes.io/%s.%s.ready", namespace, moduleName)
 }
