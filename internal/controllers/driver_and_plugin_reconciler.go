@@ -43,6 +43,58 @@ const (
 	devicePluginLabel              = "gpue.openshift.io/device-plugin"
 )
 
+const buildDockerfile = `
+FROM quay.io/yshnaidm/amd_gpu_sources:el9 as sources
+ARG DTK_AUTO
+FROM ${DTK_AUTO} as builder
+ARG KERNEL_VERSION
+COPY --from=sources /amdgpu-drivers-source /amdgpu-drivers-source
+WORKDIR /amdgpu-drivers-source
+RUN ./amd/dkms/pre-build.sh ${KERNEL_VERSION}
+RUN make TTM_NAME=amdttm SCHED_NAME=amd-sched -C /usr/src/kernels/${KERNEL_VERSION} M=/amdgpu-drivers-source
+RUN ./amd/dkms/post-build.sh ${KERNEL_VERSION}
+
+RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdgpu
+RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdkcl
+RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdxcp
+RUN mkdir -p /lib/modules/${KERNEL_VERSION}/scheduler
+RUN mkdir -p /lib/modules/${KERNEL_VERSION}/ttm
+RUN rm -f /lib/modules/${KERNEL_VERSION}/kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.xz
+
+RUN cp /amdgpu-drivers-source/amd/amdgpu/amdgpu.ko /lib/modules/${KERNEL_VERSION}/amd/amdgpu/amdgpu.ko
+RUN cp /amdgpu-drivers-source/amd/amdkcl/amdkcl.ko /lib/modules/${KERNEL_VERSION}/amd/amdkcl/amdkcl.ko
+RUN cp /amdgpu-drivers-source/amd/amdxcp/amdxcp.ko /lib/modules/${KERNEL_VERSION}/amd/amdxcp/amdxcp.ko
+RUN cp /amdgpu-drivers-source/scheduler/amd-sched.ko /lib/modules/${KERNEL_VERSION}/scheduler/amd-sched.ko
+RUN cp /amdgpu-drivers-source/ttm/amdttm.ko /lib/modules/${KERNEL_VERSION}/ttm/amdttm.ko
+RUN cp /amdgpu-drivers-source/amddrm_buddy.ko /lib/modules/${KERNEL_VERSION}/amddrm_buddy.ko
+RUN cp /amdgpu-drivers-source/amddrm_ttm_helper.ko /lib/modules/${KERNEL_VERSION}/amddrm_ttm_helper.ko
+
+RUN depmod ${KERNEL_VERSION}
+
+RUN mkdir /modules_files
+RUN cp /lib/modules/${KERNEL_VERSION}/modules.* /modules_files
+
+FROM registry.redhat.io/ubi9/ubi-minimal
+
+ARG KERNEL_VERSION
+
+RUN ["microdnf", "install", "-y", "kmod"]
+
+COPY --from=builder /amdgpu-drivers-source/amd/amdgpu/amdgpu.ko /opt/lib/modules/${KERNEL_VERSION}/amd/amdgpu/amdgpu.ko
+COPY --from=builder /amdgpu-drivers-source/amd/amdkcl/amdkcl.ko /opt/lib/modules/${KERNEL_VERSION}/amd/amdkcl/amdkcl.ko
+COPY --from=builder /amdgpu-drivers-source/amd/amdxcp/amdxcp.ko /opt/lib/modules/${KERNEL_VERSION}/amd/amdxcp/amdxcp.ko
+COPY --from=builder /amdgpu-drivers-source/scheduler/amd-sched.ko /opt/lib/modules/${KERNEL_VERSION}/scheduler/amd-sched.ko
+COPY --from=builder /amdgpu-drivers-source/ttm/amdttm.ko /opt/lib/modules/${KERNEL_VERSION}/ttm/amdttm.ko
+COPY --from=builder /amdgpu-drivers-source/amddrm_buddy.ko /opt/lib/modules/${KERNEL_VERSION}/amddrm_buddy.ko
+COPY --from=builder /amdgpu-drivers-source/amddrm_ttm_helper.ko /opt/lib/modules/${KERNEL_VERSION}/amddrm_ttm_helper.ko
+COPY --from=builder /modules_files /opt/lib/modules/${KERNEL_VERSION}/
+RUN ln -s /lib/modules/${KERNEL_VERSION}/kernel /opt/lib/modules/${KERNEL_VERSION}/kernel
+
+# copy firmware
+RUN mkdir -p /firmwareDir/updates/amdgpu
+COPY --from=sources /firmwareDir/updates/amdgpu /firmwareDir/updates/amdgpu
+`
+
 // ModuleReconciler reconciles a Module object
 type DriverAndPluginReconciler struct {
 	client client.Client
@@ -74,6 +126,7 @@ func (r *DriverAndPluginReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=create;delete;get;list;patch;watch
 //+kubebuilder:rbac:groups="core",resources=nodes,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;delete;get;list;patch;watch;create
 
 func (r *DriverAndPluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	res := ctrl.Result{}
@@ -116,6 +169,11 @@ func (r *DriverAndPluginReconciler) getRequestedGPUEnablement(ctx context.Contex
 }
 
 func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+	err := r.prepareBuildConfigMap(ctx, gpue)
+	if err != nil {
+		return fmt.Errorf("failed to prepare dockerfile config map for KMM: %v", err)
+	}
+
 	kmmMod := &kmmv1beta1.Module{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: gpue.Namespace,
@@ -136,9 +194,38 @@ func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1a
 }
 func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, gpue *gpuev1alpha1.GPUEnablement) error {
 	mod.Spec.ModuleLoader.Container = gpue.Spec.DriversConfig
+	mod.Spec.ModuleLoader.Container.Build = &kmmv1beta1.Build {
+		DockerfileConfigMap: &v1.LocalObjectReference {
+			Name: "dockerfile" + gpue.Name,
+		},
+	}
 	mod.Spec.ImageRepoSecret = gpue.Spec.ImageRepoSecret
 	mod.Spec.Selector = gpue.Spec.Selector
 	return controllerutil.SetControllerReference(gpue, mod, r.scheme)
+}
+
+func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+	buildDockerfileCM := &v1.ConfigMap {
+		ObjectMeta: metav1.ObjectMeta{
+                        Namespace: gpue.Namespace,
+                        Name:      "dockerfile" + gpue.Name,
+                },
+	}
+
+	logger := log.FromContext(ctx)
+        opRes, err := controllerutil.CreateOrPatch(ctx, r.client, buildDockerfileCM, func() error {
+		if buildDockerfileCM.Data == nil {
+			buildDockerfileCM.Data = make(map[string]string)
+		}
+		buildDockerfileCM.Data["dockerfile"] = buildDockerfile
+		return controllerutil.SetControllerReference(gpue, buildDockerfileCM, r.scheme)
+        })
+
+        if err == nil {
+                logger.Info("Reconciled KMM build dockerfile ConfigMap", "name", buildDockerfileCM.Name, "result", opRes)
+        }
+
+        return err
 }
 
 func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {

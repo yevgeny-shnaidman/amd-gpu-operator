@@ -60,7 +60,7 @@ type GPUEnablementStatus struct {
 }
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:scope=Namespaced
+//+kubebuilder:resource:scope=Namespaced,shortName=gpue
 //+kubebuilder:subresource:status
 
 // GPUConfig describes how to enable AMD GPU device

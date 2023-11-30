@@ -11,6 +11,8 @@ spec:
     kind: GPUEnablement
     listKind: GPUEnablementList
     plural: gpuenablements
+    shortNames:
+    - gpue
     singular: gpuenablement
   scope: Namespaced
   versions:
