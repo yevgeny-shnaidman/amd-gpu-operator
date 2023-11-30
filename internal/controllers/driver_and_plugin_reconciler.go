@@ -41,6 +41,9 @@ const (
 	kubeletDevicePluginsPath       = "/var/lib/kubelet/device-plugins"
 	nodeVarLibFirmwarePath         = "/var/lib/firmware"
 	devicePluginLabel              = "gpue.openshift.io/device-plugin"
+	gpuDriverModuleName            = "amdgpu"
+	imageFirmwarePath              = "firmwareDir/updates"
+	defaultDevicePluginImage       = "rocm/k8s-device-plugin"
 )
 
 const buildDockerfile = `
@@ -193,10 +196,22 @@ func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1a
 
 }
 func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, gpue *gpuev1alpha1.GPUEnablement) error {
-	mod.Spec.ModuleLoader.Container = gpue.Spec.DriversConfig
-	mod.Spec.ModuleLoader.Container.Build = &kmmv1beta1.Build {
-		DockerfileConfigMap: &v1.LocalObjectReference {
-			Name: "dockerfile" + gpue.Name,
+	mod.Spec.ModuleLoader.Container = kmmv1beta1.ModuleLoaderContainerSpec{
+		Modprobe: kmmv1beta1.ModprobeSpec{
+			ModuleName:   gpuDriverModuleName,
+			FirmwarePath: imageFirmwarePath,
+		},
+		KernelMappings: []kmmv1beta1.KernelMapping{
+			{
+				Regexp:               "^.+$",
+				ContainerImage:       gpue.Spec.DriversImage,
+				InTreeModuleToRemove: gpuDriverModuleName,
+				Build: &kmmv1beta1.Build{
+					DockerfileConfigMap: &v1.LocalObjectReference{
+						Name: getDockerfielCMName(gpue),
+					},
+				},
+			},
 		},
 	}
 	mod.Spec.ImageRepoSecret = gpue.Spec.ImageRepoSecret
@@ -205,27 +220,27 @@ func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *km
 }
 
 func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
-	buildDockerfileCM := &v1.ConfigMap {
+	buildDockerfileCM := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-                        Namespace: gpue.Namespace,
-                        Name:      "dockerfile" + gpue.Name,
-                },
+			Namespace: gpue.Namespace,
+			Name:      getDockerfielCMName(gpue),
+		},
 	}
 
 	logger := log.FromContext(ctx)
-        opRes, err := controllerutil.CreateOrPatch(ctx, r.client, buildDockerfileCM, func() error {
+	opRes, err := controllerutil.CreateOrPatch(ctx, r.client, buildDockerfileCM, func() error {
 		if buildDockerfileCM.Data == nil {
 			buildDockerfileCM.Data = make(map[string]string)
 		}
 		buildDockerfileCM.Data["dockerfile"] = buildDockerfile
 		return controllerutil.SetControllerReference(gpue, buildDockerfileCM, r.scheme)
-        })
+	})
 
-        if err == nil {
-                logger.Info("Reconciled KMM build dockerfile ConfigMap", "name", buildDockerfileCM.Name, "result", opRes)
-        }
+	if err == nil {
+		logger.Info("Reconciled KMM build dockerfile ConfigMap", "name", buildDockerfileCM.Name, "result", opRes)
+	}
 
-        return err
+	return err
 }
 
 func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
@@ -285,6 +300,10 @@ func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context
 	}
 	standardLabels := map[string]string{devicePluginLabel: gpue.Name}
 	nodeSelector := map[string]string{getKMMModuleReadyNodeLabel(gpue.Namespace, gpue.Name): ""}
+	devicePluginImage := gpue.Spec.DevicePluginImage
+	if devicePluginImage == "" {
+		devicePluginImage = defaultDevicePluginImage
+	}
 	ds.Spec = appsv1.DaemonSetSpec{
 		Selector: &metav1.LabelSelector{MatchLabels: standardLabels},
 		Template: v1.PodTemplateSpec{
@@ -295,7 +314,7 @@ func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context
 				Containers: []v1.Container{
 					{
 						Name:            "device-plugin",
-						Image:           gpue.Spec.DevicePluginImage,
+						Image:           devicePluginImage,
 						ImagePullPolicy: v1.PullAlways,
 						SecurityContext: &v1.SecurityContext{Privileged: pointer.Bool(true)},
 						VolumeMounts:    containerVolumeMounts,
@@ -318,4 +337,8 @@ func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context
 
 func getKMMModuleReadyNodeLabel(namespace, moduleName string) string {
 	return fmt.Sprintf("kmm.node.kubernetes.io/%s.%s.ready", namespace, moduleName)
+}
+
+func getDockerfielCMName(gpue *gpuev1alpha1.GPUEnablement) string {
+	return "dockerfile-" + gpue.Name
 }

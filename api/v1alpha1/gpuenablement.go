@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -27,14 +26,15 @@ type GPUEnablementSpec struct {
 	// if the in-tree driver should be used instead of OOT drivers
 	UseInTreeDrivers bool `json:"useInTreeDrivers,omitempty"`
 
-	// defines configuration for kernel modules/drivers need by the operator
-	DriversConfig kmmv1beta1.ModuleLoaderContainerSpec `json:"driversConfig"`
+	// defines image that includes drivers and firmware blobs
+	DriversImage string `json:"driversImage"`
+
+	// device plugin image
+	// +optional
+	DevicePluginImage string `json:"devicePluginImage,omitempty"`
 
 	// pull secrets used for pull/setting images used by operator
 	ImageRepoSecret *v1.LocalObjectReference `json:"imageRepoSecret,omitempty"`
-
-	// device plugin image
-	DevicePluginImage string `json:"devicePluginImage"`
 
 	// Selector describes on which nodes the GPU Operator should enable the GPU device.
 	Selector map[string]string `json:"selector"`
