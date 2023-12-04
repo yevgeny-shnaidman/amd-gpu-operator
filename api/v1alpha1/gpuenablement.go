@@ -27,13 +27,15 @@ type GPUEnablementSpec struct {
 	UseInTreeDrivers bool `json:"useInTreeDrivers,omitempty"`
 
 	// defines image that includes drivers and firmware blobs
-	DriversImage string `json:"driversImage"`
+	// +optional
+	DriversImage string `json:"driversImage,omitempty"`
 
 	// device plugin image
 	// +optional
 	DevicePluginImage string `json:"devicePluginImage,omitempty"`
 
 	// pull secrets used for pull/setting images used by operator
+	// +optional
 	ImageRepoSecret *v1.LocalObjectReference `json:"imageRepoSecret,omitempty"`
 
 	// Selector describes on which nodes the GPU Operator should enable the GPU device.

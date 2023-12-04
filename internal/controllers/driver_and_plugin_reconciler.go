@@ -44,6 +44,8 @@ const (
 	gpuDriverModuleName            = "amdgpu"
 	imageFirmwarePath              = "firmwareDir/updates"
 	defaultDevicePluginImage       = "rocm/k8s-device-plugin"
+	defaultDriversImage            = "image-registry.openshift-image-registry.svc:5000/$MOD_NAMESPACE/amd_gpu_kmm_modules:$KERNEL_VERSION"
+	gpueFinalizer                  = "gpue.node.kubernetes.io/gpue-finalizer"
 )
 
 const buildDockerfile = `
@@ -124,7 +126,7 @@ func (r *DriverAndPluginReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 //+kubebuilder:rbac:groups=gpue.openshift.io,resources=gpuenablements,verbs=get;list;watch;create;patch;update
-//+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules,verbs=get;list;watch;create;patch;update
+//+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules,verbs=get;list;watch;create;patch;update;delete
 //+kubebuilder:rbac:groups=gpue.openshift.io,resources=gpuenablements/finalizers,verbs=update
 //+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=create;delete;get;list;patch;watch
@@ -144,6 +146,20 @@ func (r *DriverAndPluginReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		return res, fmt.Errorf("failed to get the requested %s KMMO CR: %w", req.NamespacedName, err)
+	}
+
+	if gpue.GetDeletionTimestamp() != nil {
+                // GPUE is being deleted
+                err = r.finalizeGPUE(ctx, gpue)
+                if err != nil {
+                        return ctrl.Result{}, fmt.Errorf("failed to finalize GPUE %s: %v", req.NamespacedName, err)
+                }
+                return ctrl.Result{}, nil
+        }
+
+	err = r.setFinalizer(ctx, gpue)
+	if err != nil {
+		return res, fmt.Errorf("failed to set finalizer for GPUE %s: %v", req.NamespacedName, err)
 	}
 
 	logger.Info("start KMM reconciliation")
@@ -171,6 +187,54 @@ func (r *DriverAndPluginReconciler) getRequestedGPUEnablement(ctx context.Contex
 	return &gpue, nil
 }
 
+func (r *DriverAndPluginReconciler) setFinalizer(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+	if controllerutil.ContainsFinalizer(gpue, gpueFinalizer) {
+		return nil
+	}
+
+	gpueCopy := gpue.DeepCopy()
+	controllerutil.AddFinalizer(gpue, gpueFinalizer)
+	return r.client.Patch(ctx, gpue, client.MergeFrom(gpueCopy))
+}
+
+func (r *DriverAndPluginReconciler) finalizeGPUE(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+	mod := kmmv1beta1.Module{}
+	devicePlugin := appsv1.DaemonSet{}
+	namespacedName := types.NamespacedName {
+                Namespace: gpue.Namespace,
+                Name: getDevicePluginName(gpue),
+        }
+	logger := log.FromContext(ctx)
+	// handle device plugin
+	err := r.client.Get(ctx, namespacedName, &devicePlugin)
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get device plugin daemonset %s: %v", namespacedName, err)
+		}
+	} else {
+		logger.Info("deleting Device Plugin %s", namespacedName)
+		err = r.client.Delete(ctx, &devicePlugin)
+		if err != nil {
+			return fmt.Errorf("failed to delete device plugin daemonset %s: %v", namespacedName, err)
+		}
+	}
+
+	// handle KMM Module
+	namespacedName.Name = gpue.Name
+	err = r.client.Get(ctx, namespacedName, &mod)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+                        logger.Info("module %s already deleted, removing finalizer", namespacedName)
+			gpueCopy := gpue.DeepCopy()
+        		controllerutil.RemoveFinalizer(gpue, gpueFinalizer)
+        		return r.client.Patch(ctx, gpue, client.MergeFrom(gpueCopy))
+                }
+                return fmt.Errorf("failed to get the requested Module %s: %v", namespacedName, err)
+	}
+	logger.Info("deleting KMM Module %s", namespacedName)
+	return r.client.Delete(ctx, &mod)
+}
+
 func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
 	err := r.prepareBuildConfigMap(ctx, gpue)
 	if err != nil {
@@ -196,6 +260,10 @@ func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1a
 
 }
 func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, gpue *gpuev1alpha1.GPUEnablement) error {
+	driversImage := gpue.Spec.DriversImage
+	if driversImage == "" {
+		driversImage = defaultDriversImage
+	}
 	mod.Spec.ModuleLoader.Container = kmmv1beta1.ModuleLoaderContainerSpec{
 		Modprobe: kmmv1beta1.ModprobeSpec{
 			ModuleName:   gpuDriverModuleName,
@@ -204,11 +272,11 @@ func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *km
 		KernelMappings: []kmmv1beta1.KernelMapping{
 			{
 				Regexp:               "^.+$",
-				ContainerImage:       gpue.Spec.DriversImage,
+				ContainerImage:       driversImage,
 				InTreeModuleToRemove: gpuDriverModuleName,
 				Build: &kmmv1beta1.Build{
 					DockerfileConfigMap: &v1.LocalObjectReference{
-						Name: getDockerfielCMName(gpue),
+						Name: getDockerfileCMName(gpue),
 					},
 				},
 			},
@@ -223,7 +291,7 @@ func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, g
 	buildDockerfileCM := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: gpue.Namespace,
-			Name:      getDockerfielCMName(gpue),
+			Name:      getDockerfileCMName(gpue),
 		},
 	}
 
@@ -247,7 +315,7 @@ func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue
 	devicePluginDS := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: gpue.Namespace,
-			Name:      gpue.Name + "device-plugin",
+			Name:      getDevicePluginName(gpue),
 		},
 	}
 	logger := log.FromContext(ctx)
@@ -339,6 +407,10 @@ func getKMMModuleReadyNodeLabel(namespace, moduleName string) string {
 	return fmt.Sprintf("kmm.node.kubernetes.io/%s.%s.ready", namespace, moduleName)
 }
 
-func getDockerfielCMName(gpue *gpuev1alpha1.GPUEnablement) string {
+func getDockerfileCMName(gpue *gpuev1alpha1.GPUEnablement) string {
 	return "dockerfile-" + gpue.Name
+}
+
+func getDevicePluginName(gpue *gpuev1alpha1.GPUEnablement) string {
+	return gpue.Name + "-device-plugin"
 }

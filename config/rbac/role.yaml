@@ -57,6 +57,7 @@ rules:
   - modules
   verbs:
   - create
+  - delete
   - get
   - list
   - patch

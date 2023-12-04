@@ -62,7 +62,6 @@ spec:
                 description: if the in-tree driver should be used instead of OOT drivers
                 type: boolean
             required:
-            - driversImage
             - selector
             type: object
           status:
