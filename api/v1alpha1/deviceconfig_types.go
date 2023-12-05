@@ -21,8 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// GPUEnablementSpec describes how the AMD GPU operator should enable AMD GPU device for customer's use.
-type GPUEnablementSpec struct {
+// DeviceConfigSpec describes how the AMD GPU operator should enable AMD GPU device for customer's use.
+type DeviceConfigSpec struct {
 	// if the in-tree driver should be used instead of OOT drivers
 	UseInTreeDrivers bool `json:"useInTreeDrivers,omitempty"`
 
@@ -45,7 +45,7 @@ type GPUEnablementSpec struct {
 // DaemonSetStatus contains the status for a daemonset deployed during
 // reconciliation loop
 type DeploymentStatus struct {
-	// number of nodes that are targeted by the module selector
+	// number of nodes that are targeted by the DeviceConfig selector
 	NodesMatchingSelectorNumber int32 `json:"nodesMatchingSelectorNumber,omitempty"`
 	// number of the pods that should be deployed for daemonset
 	DesiredNumber int32 `json:"desiredNumber,omitempty"`
@@ -54,36 +54,36 @@ type DeploymentStatus struct {
 }
 
 // ModuleStatus defines the observed state of Module.
-type GPUEnablementStatus struct {
-	// DevicePlugin contains the status of the GPU Device Plugin deployment
+type DeviceConfigStatus struct {
+	// DevicePlugin contains the status of the Device Plugin deployment
 	DevicePlugin DeploymentStatus `json:"devicePlugin,omitempty"`
-	// Driver contains the status of the GPU Driver deployment
-	Driver DeploymentStatus `json:"driver"`
+	// Driver contains the status of the Drivers deployment
+	Drivers DeploymentStatus `json:"driver"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:scope=Namespaced,shortName=gpue
 //+kubebuilder:subresource:status
 
-// GPUConfig describes how to enable AMD GPU device
-// +operator-sdk:csv:customresourcedefinitions:displayName="GPUEnablement"
-type GPUEnablement struct {
+// DeviceConfig describes how to enable AMD GPU device
+// +operator-sdk:csv:customresourcedefinitions:displayName="DeviceConfig"
+type DeviceConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   GPUEnablementSpec   `json:"spec,omitempty"`
-	Status GPUEnablementStatus `json:"status,omitempty"`
+	Spec   DeviceConfigSpec   `json:"spec,omitempty"`
+	Status DeviceConfigStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// ModuleList contains a list of Module
-type GPUEnablementList struct {
+// DeviceConfigList contains a list of DeviceConfigs
+type DeviceConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []GPUEnablement `json:"items"`
+	Items           []DeviceConfig `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&GPUEnablement{}, &GPUEnablementList{})
+	SchemeBuilder.Register(&DeviceConfig{}, &DeviceConfigList{})
 }

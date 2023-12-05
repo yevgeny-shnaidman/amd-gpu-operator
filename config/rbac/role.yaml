@@ -5,6 +5,23 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - amd.io
+  resources:
+  - deviceconfigs
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - amd.io
+  resources:
+  - deviceconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
   - apps
   resources:
   - daemonsets
@@ -34,23 +51,6 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - gpue.openshift.io
-  resources:
-  - gpuenablements
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - gpue.openshift.io
-  resources:
-  - gpuenablements/finalizers
-  verbs:
-  - update
 - apiGroups:
   - kmm.sigs.x-k8s.io
   resources:

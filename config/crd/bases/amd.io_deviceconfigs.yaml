@@ -4,22 +4,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: gpuenablements.gpue.openshift.io
+  name: deviceconfigs.amd.io
 spec:
-  group: gpue.openshift.io
+  group: amd.io
   names:
-    kind: GPUEnablement
-    listKind: GPUEnablementList
-    plural: gpuenablements
+    kind: DeviceConfig
+    listKind: DeviceConfigList
+    plural: deviceconfigs
     shortNames:
     - gpue
-    singular: gpuenablement
+    singular: deviceconfig
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: GPUConfig describes how to enable AMD GPU device
+        description: DeviceConfig describes how to enable AMD GPU device
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -34,7 +34,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: GPUEnablementSpec describes how the AMD GPU operator should
+            description: DeviceConfigSpec describes how the AMD GPU operator should
               enable AMD GPU device for customer's use.
             properties:
               devicePluginImage:
@@ -68,7 +68,7 @@ spec:
             description: ModuleStatus defines the observed state of Module.
             properties:
               devicePlugin:
-                description: DevicePlugin contains the status of the GPU Device Plugin
+                description: DevicePlugin contains the status of the Device Plugin
                   deployment
                 properties:
                   availableNumber:
@@ -80,12 +80,13 @@ spec:
                     format: int32
                     type: integer
                   nodesMatchingSelectorNumber:
-                    description: number of nodes that are targeted by the module selector
+                    description: number of nodes that are targeted by the DeviceConfig
+                      selector
                     format: int32
                     type: integer
                 type: object
               driver:
-                description: Driver contains the status of the GPU Driver deployment
+                description: Driver contains the status of the Drivers deployment
                 properties:
                   availableNumber:
                     description: number of the actually deployed and running pods
@@ -96,7 +97,8 @@ spec:
                     format: int32
                     type: integer
                   nodesMatchingSelectorNumber:
-                    description: number of nodes that are targeted by the module selector
+                    description: number of nodes that are targeted by the DeviceConfig
+                      selector
                     format: int32
                     type: integer
                 type: object

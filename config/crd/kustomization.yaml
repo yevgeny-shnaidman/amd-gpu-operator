@@ -5,7 +5,7 @@ kind: Kustomization
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/gpue.openshift.io_gpuenablements.yaml
+- bases/amd.io_deviceconfigs.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

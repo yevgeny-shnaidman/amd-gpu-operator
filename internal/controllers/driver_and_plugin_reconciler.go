@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
-	gpuev1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
+	amdv1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -45,7 +45,7 @@ const (
 	imageFirmwarePath              = "firmwareDir/updates"
 	defaultDevicePluginImage       = "rocm/k8s-device-plugin"
 	defaultDriversImage            = "image-registry.openshift-image-registry.svc:5000/$MOD_NAMESPACE/amd_gpu_kmm_modules:$KERNEL_VERSION"
-	gpueFinalizer                  = "gpue.node.kubernetes.io/gpue-finalizer"
+	deviceConfigFinalizer                  = "amd.node.kubernetes.io/deviceconfig-finalizer"
 )
 
 const buildDockerfile = `
@@ -119,15 +119,15 @@ func NewDriverAndPluginReconciler(
 // SetupWithManager sets up the controller with the Manager.
 func (r *DriverAndPluginReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gpuev1alpha1.GPUEnablement{}).
+		For(&amdv1alpha1.DeviceConfig{}).
 		Owns(&kmmv1beta1.Module{}).
 		Named(DriverAndPluginReconcilerName).
 		Complete(r)
 }
 
-//+kubebuilder:rbac:groups=gpue.openshift.io,resources=gpuenablements,verbs=get;list;watch;create;patch;update
+//+kubebuilder:rbac:groups=amd.io,resources=deviceconfigs,verbs=get;list;watch;create;patch;update
 //+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules,verbs=get;list;watch;create;patch;update;delete
-//+kubebuilder:rbac:groups=gpue.openshift.io,resources=gpuenablements/finalizers,verbs=update
+//+kubebuilder:rbac:groups=amd.io,resources=deviceconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=create;delete;get;list;patch;watch
 //+kubebuilder:rbac:groups="core",resources=nodes,verbs=get;list;watch
@@ -178,31 +178,31 @@ func (r *DriverAndPluginReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return res, nil
 }
 
-func (r *DriverAndPluginReconciler) getRequestedGPUEnablement(ctx context.Context, namespacedName types.NamespacedName) (*gpuev1alpha1.GPUEnablement, error) {
-	gpue := gpuev1alpha1.GPUEnablement{}
+func (r *DriverAndPluginReconciler) getRequestedGPUEnablement(ctx context.Context, namespacedName types.NamespacedName) (*amdv1alpha1.DeviceConfig, error) {
+	devConfig := amdv1alpha1.DeviceConfig{}
 
-	if err := r.client.Get(ctx, namespacedName, &gpue); err != nil {
-		return nil, fmt.Errorf("failed to get GPUEnablement %s: %v", namespacedName, err)
+	if err := r.client.Get(ctx, namespacedName, &devConfig); err != nil {
+		return nil, fmt.Errorf("failed to get DeviceConfig %s: %v", namespacedName, err)
 	}
-	return &gpue, nil
+	return &devConfig, nil
 }
 
-func (r *DriverAndPluginReconciler) setFinalizer(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
-	if controllerutil.ContainsFinalizer(gpue, gpueFinalizer) {
+func (r *DriverAndPluginReconciler) setFinalizer(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
+	if controllerutil.ContainsFinalizer(devConfig, deviceConfigFinalizer) {
 		return nil
 	}
 
-	gpueCopy := gpue.DeepCopy()
-	controllerutil.AddFinalizer(gpue, gpueFinalizer)
-	return r.client.Patch(ctx, gpue, client.MergeFrom(gpueCopy))
+	devConfigCopy := devConfig.DeepCopy()
+	controllerutil.AddFinalizer(devConfig, deviceConfigFinalizer)
+	return r.client.Patch(ctx, devConfig, client.MergeFrom(devConfigCopy))
 }
 
-func (r *DriverAndPluginReconciler) finalizeGPUE(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+func (r *DriverAndPluginReconciler) finalizeGPUE(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	mod := kmmv1beta1.Module{}
 	devicePlugin := appsv1.DaemonSet{}
 	namespacedName := types.NamespacedName {
-                Namespace: gpue.Namespace,
-                Name: getDevicePluginName(gpue),
+                Namespace: devConfig.Namespace,
+                Name: getDevicePluginName(devConfig),
         }
 	logger := log.FromContext(ctx)
 	// handle device plugin
@@ -220,14 +220,14 @@ func (r *DriverAndPluginReconciler) finalizeGPUE(ctx context.Context, gpue *gpue
 	}
 
 	// handle KMM Module
-	namespacedName.Name = gpue.Name
+	namespacedName.Name = devConfig.Name
 	err = r.client.Get(ctx, namespacedName, &mod)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
                         logger.Info("module %s already deleted, removing finalizer", namespacedName)
-			gpueCopy := gpue.DeepCopy()
-        		controllerutil.RemoveFinalizer(gpue, gpueFinalizer)
-        		return r.client.Patch(ctx, gpue, client.MergeFrom(gpueCopy))
+			devConfigCopy := devConfig.DeepCopy()
+        		controllerutil.RemoveFinalizer(devConfig, deviceConfigFinalizer)
+        		return r.client.Patch(ctx, devConfig, client.MergeFrom(devConfigCopy))
                 }
                 return fmt.Errorf("failed to get the requested Module %s: %v", namespacedName, err)
 	}
@@ -235,21 +235,21 @@ func (r *DriverAndPluginReconciler) finalizeGPUE(ctx context.Context, gpue *gpue
 	return r.client.Delete(ctx, &mod)
 }
 
-func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
-	err := r.prepareBuildConfigMap(ctx, gpue)
+func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
+	err := r.prepareBuildConfigMap(ctx, devConfig)
 	if err != nil {
 		return fmt.Errorf("failed to prepare dockerfile config map for KMM: %v", err)
 	}
 
 	kmmMod := &kmmv1beta1.Module{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: gpue.Namespace,
-			Name:      gpue.Name,
+			Namespace: devConfig.Namespace,
+			Name:      devConfig.Name,
 		},
 	}
 	logger := log.FromContext(ctx)
 	opRes, err := controllerutil.CreateOrPatch(ctx, r.client, kmmMod, func() error {
-		return r.setKMMAsDesired(ctx, kmmMod, gpue)
+		return r.setKMMAsDesired(ctx, kmmMod, devConfig)
 	})
 
 	if err == nil {
@@ -259,8 +259,8 @@ func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, gpue *gpuev1a
 	return err
 
 }
-func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, gpue *gpuev1alpha1.GPUEnablement) error {
-	driversImage := gpue.Spec.DriversImage
+func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) error {
+	driversImage := devConfig.Spec.DriversImage
 	if driversImage == "" {
 		driversImage = defaultDriversImage
 	}
@@ -276,22 +276,22 @@ func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *km
 				InTreeModuleToRemove: gpuDriverModuleName,
 				Build: &kmmv1beta1.Build{
 					DockerfileConfigMap: &v1.LocalObjectReference{
-						Name: getDockerfileCMName(gpue),
+						Name: getDockerfileCMName(devConfig),
 					},
 				},
 			},
 		},
 	}
-	mod.Spec.ImageRepoSecret = gpue.Spec.ImageRepoSecret
-	mod.Spec.Selector = gpue.Spec.Selector
-	return controllerutil.SetControllerReference(gpue, mod, r.scheme)
+	mod.Spec.ImageRepoSecret = devConfig.Spec.ImageRepoSecret
+	mod.Spec.Selector = devConfig.Spec.Selector
+	return controllerutil.SetControllerReference(devConfig, mod, r.scheme)
 }
 
-func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	buildDockerfileCM := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: gpue.Namespace,
-			Name:      getDockerfileCMName(gpue),
+			Namespace: devConfig.Namespace,
+			Name:      getDockerfileCMName(devConfig),
 		},
 	}
 
@@ -301,7 +301,7 @@ func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, g
 			buildDockerfileCM.Data = make(map[string]string)
 		}
 		buildDockerfileCM.Data["dockerfile"] = buildDockerfile
-		return controllerutil.SetControllerReference(gpue, buildDockerfileCM, r.scheme)
+		return controllerutil.SetControllerReference(devConfig, buildDockerfileCM, r.scheme)
 	})
 
 	if err == nil {
@@ -311,16 +311,16 @@ func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, g
 	return err
 }
 
-func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue *gpuev1alpha1.GPUEnablement) error {
+func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	devicePluginDS := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: gpue.Namespace,
-			Name:      getDevicePluginName(gpue),
+			Namespace: devConfig.Namespace,
+			Name:      getDevicePluginName(devConfig),
 		},
 	}
 	logger := log.FromContext(ctx)
 	opRes, err := controllerutil.CreateOrPatch(ctx, r.client, devicePluginDS, func() error {
-		return r.setDevicePluginAsDesired(ctx, devicePluginDS, gpue)
+		return r.setDevicePluginAsDesired(ctx, devicePluginDS, devConfig)
 	})
 	if err == nil {
 		logger.Info("Reconciled Device Plugin daemonset", "name", devicePluginDS.Name, "result", opRes)
@@ -328,7 +328,7 @@ func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, gpue
 	return err
 }
 
-func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context, ds *appsv1.DaemonSet, gpue *gpuev1alpha1.GPUEnablement) error {
+func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context, ds *appsv1.DaemonSet, devConfig *amdv1alpha1.DeviceConfig) error {
 	if ds == nil {
 		return fmt.Errorf("input daemonset cannot be nil")
 	}
@@ -366,9 +366,9 @@ func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context
 			},
 		},
 	}
-	standardLabels := map[string]string{devicePluginLabel: gpue.Name}
-	nodeSelector := map[string]string{getKMMModuleReadyNodeLabel(gpue.Namespace, gpue.Name): ""}
-	devicePluginImage := gpue.Spec.DevicePluginImage
+	standardLabels := map[string]string{devicePluginLabel: devConfig.Name}
+	nodeSelector := map[string]string{getKMMModuleReadyNodeLabel(devConfig.Namespace, devConfig.Name): ""}
+	devicePluginImage := devConfig.Spec.DevicePluginImage
 	if devicePluginImage == "" {
 		devicePluginImage = defaultDevicePluginImage
 	}
@@ -400,17 +400,17 @@ func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context
 			},
 		},
 	}
-	return controllerutil.SetControllerReference(gpue, ds, r.scheme)
+	return controllerutil.SetControllerReference(devConfig, ds, r.scheme)
 }
 
 func getKMMModuleReadyNodeLabel(namespace, moduleName string) string {
 	return fmt.Sprintf("kmm.node.kubernetes.io/%s.%s.ready", namespace, moduleName)
 }
 
-func getDockerfileCMName(gpue *gpuev1alpha1.GPUEnablement) string {
-	return "dockerfile-" + gpue.Name
+func getDockerfileCMName(devConfig *amdv1alpha1.DeviceConfig) string {
+	return "dockerfile-" + devConfig.Name
 }
 
-func getDevicePluginName(gpue *gpuev1alpha1.GPUEnablement) string {
-	return gpue.Name + "-device-plugin"
+func getDevicePluginName(devConfig *amdv1alpha1.DeviceConfig) string {
+	return devConfig.Name + "-device-plugin"
 }
