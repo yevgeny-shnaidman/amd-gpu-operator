@@ -22,13 +22,11 @@ import (
 
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	amdv1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -40,12 +38,11 @@ const (
 	kubeletDevicePluginsVolumeName = "kubelet-device-plugins"
 	kubeletDevicePluginsPath       = "/var/lib/kubelet/device-plugins"
 	nodeVarLibFirmwarePath         = "/var/lib/firmware"
-	devicePluginLabel              = "gpue.openshift.io/device-plugin"
 	gpuDriverModuleName            = "amdgpu"
 	imageFirmwarePath              = "firmwareDir/updates"
 	defaultDevicePluginImage       = "rocm/k8s-device-plugin"
 	defaultDriversImage            = "image-registry.openshift-image-registry.svc:5000/$MOD_NAMESPACE/amd_gpu_kmm_modules:$KERNEL_VERSION"
-	deviceConfigFinalizer                  = "amd.node.kubernetes.io/deviceconfig-finalizer"
+	deviceConfigFinalizer          = "amd.node.kubernetes.io/deviceconfig-finalizer"
 )
 
 const buildDockerfile = `
@@ -138,7 +135,7 @@ func (r *DriverAndPluginReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	logger := log.FromContext(ctx)
 
-	gpue, err := r.getRequestedGPUEnablement(ctx, req.NamespacedName)
+	devConfig, err := r.getRequestedDeviceConfig(ctx, req.NamespacedName)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			logger.Info("Module deleted")
@@ -148,37 +145,31 @@ func (r *DriverAndPluginReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return res, fmt.Errorf("failed to get the requested %s KMMO CR: %w", req.NamespacedName, err)
 	}
 
-	if gpue.GetDeletionTimestamp() != nil {
-                // GPUE is being deleted
-                err = r.finalizeGPUE(ctx, gpue)
-                if err != nil {
-                        return ctrl.Result{}, fmt.Errorf("failed to finalize GPUE %s: %v", req.NamespacedName, err)
-                }
-                return ctrl.Result{}, nil
-        }
+	if devConfig.GetDeletionTimestamp() != nil {
+		// DeviceConfig is being deleted
+		err = r.finalizeDeviceConfig(ctx, devConfig)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to finalize DeviceConfig %s: %v", req.NamespacedName, err)
+		}
+		return ctrl.Result{}, nil
+	}
 
-	err = r.setFinalizer(ctx, gpue)
+	err = r.setFinalizer(ctx, devConfig)
 	if err != nil {
-		return res, fmt.Errorf("failed to set finalizer for GPUE %s: %v", req.NamespacedName, err)
+		return res, fmt.Errorf("failed to set finalizer for DeviceConfig %s: %v", req.NamespacedName, err)
 	}
 
 	logger.Info("start KMM reconciliation")
-	err = r.handleKMM(ctx, gpue)
+	err = r.handleKMM(ctx, devConfig)
 	if err != nil {
-		return res, fmt.Errorf("failed to handle KMM module for gpue %s: %v", req.NamespacedName, err)
+		return res, fmt.Errorf("failed to handle KMM module for DeviceConfig %s: %v", req.NamespacedName, err)
 	}
 
-	logger.Info("start DevicePlugin reconciliation")
-	err = r.handleDevicePlugin(ctx, gpue)
-	if err != nil {
-		return res, fmt.Errorf("failed to handle DevicePlugin for gpue %s: %v", req.NamespacedName, err)
-	}
-
-	// [TODO] add status handling for GPUE
+	// [TODO] add status handling for DeviceConfig
 	return res, nil
 }
 
-func (r *DriverAndPluginReconciler) getRequestedGPUEnablement(ctx context.Context, namespacedName types.NamespacedName) (*amdv1alpha1.DeviceConfig, error) {
+func (r *DriverAndPluginReconciler) getRequestedDeviceConfig(ctx context.Context, namespacedName types.NamespacedName) (*amdv1alpha1.DeviceConfig, error) {
 	devConfig := amdv1alpha1.DeviceConfig{}
 
 	if err := r.client.Get(ctx, namespacedName, &devConfig); err != nil {
@@ -197,39 +188,23 @@ func (r *DriverAndPluginReconciler) setFinalizer(ctx context.Context, devConfig 
 	return r.client.Patch(ctx, devConfig, client.MergeFrom(devConfigCopy))
 }
 
-func (r *DriverAndPluginReconciler) finalizeGPUE(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
+func (r *DriverAndPluginReconciler) finalizeDeviceConfig(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	mod := kmmv1beta1.Module{}
-	devicePlugin := appsv1.DaemonSet{}
-	namespacedName := types.NamespacedName {
-                Namespace: devConfig.Namespace,
-                Name: getDevicePluginName(devConfig),
-        }
-	logger := log.FromContext(ctx)
-	// handle device plugin
-	err := r.client.Get(ctx, namespacedName, &devicePlugin)
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("failed to get device plugin daemonset %s: %v", namespacedName, err)
-		}
-	} else {
-		logger.Info("deleting Device Plugin %s", namespacedName)
-		err = r.client.Delete(ctx, &devicePlugin)
-		if err != nil {
-			return fmt.Errorf("failed to delete device plugin daemonset %s: %v", namespacedName, err)
-		}
-	}
 
-	// handle KMM Module
-	namespacedName.Name = devConfig.Name
-	err = r.client.Get(ctx, namespacedName, &mod)
+	logger := log.FromContext(ctx)
+	namespacedName := types.NamespacedName{
+		Namespace: devConfig.Namespace,
+		Name:      devConfig.Name,
+	}
+	err := r.client.Get(ctx, namespacedName, &mod)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-                        logger.Info("module %s already deleted, removing finalizer", namespacedName)
+			logger.Info("module %s already deleted, removing finalizer", namespacedName)
 			devConfigCopy := devConfig.DeepCopy()
-        		controllerutil.RemoveFinalizer(devConfig, deviceConfigFinalizer)
-        		return r.client.Patch(ctx, devConfig, client.MergeFrom(devConfigCopy))
-                }
-                return fmt.Errorf("failed to get the requested Module %s: %v", namespacedName, err)
+			controllerutil.RemoveFinalizer(devConfig, deviceConfigFinalizer)
+			return r.client.Patch(ctx, devConfig, client.MergeFrom(devConfigCopy))
+		}
+		return fmt.Errorf("failed to get the requested Module %s: %v", namespacedName, err)
 	}
 	logger.Info("deleting KMM Module %s", namespacedName)
 	return r.client.Delete(ctx, &mod)
@@ -260,6 +235,12 @@ func (r *DriverAndPluginReconciler) handleKMM(ctx context.Context, devConfig *am
 
 }
 func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) error {
+	r.setKMMModuleLoader(ctx, mod, devConfig)
+	r.setKMMDevicePlugin(ctx, mod, devConfig)
+	return controllerutil.SetControllerReference(devConfig, mod, r.scheme)
+}
+
+func (r *DriverAndPluginReconciler) setKMMModuleLoader(ctx context.Context, mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) {
 	driversImage := devConfig.Spec.DriversImage
 	if driversImage == "" {
 		driversImage = defaultDriversImage
@@ -284,7 +265,36 @@ func (r *DriverAndPluginReconciler) setKMMAsDesired(ctx context.Context, mod *km
 	}
 	mod.Spec.ImageRepoSecret = devConfig.Spec.ImageRepoSecret
 	mod.Spec.Selector = devConfig.Spec.Selector
-	return controllerutil.SetControllerReference(devConfig, mod, r.scheme)
+}
+
+func (r *DriverAndPluginReconciler) setKMMDevicePlugin(ctx context.Context, mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) {
+	devicePluginImage := devConfig.Spec.DevicePluginImage
+	if devicePluginImage == "" {
+		devicePluginImage = defaultDevicePluginImage
+	}
+	hostPathDirectory := v1.HostPathDirectory
+	mod.Spec.DevicePlugin = &kmmv1beta1.DevicePluginSpec{
+		Container: kmmv1beta1.DevicePluginContainerSpec{
+			Image: devicePluginImage,
+			VolumeMounts: []v1.VolumeMount{
+				{
+					Name:      "sys",
+					MountPath: "/sys",
+				},
+			},
+		},
+		Volumes: []v1.Volume{
+			{
+				Name: "sys",
+				VolumeSource: v1.VolumeSource{
+					HostPath: &v1.HostPathVolumeSource{
+						Path: "/sys",
+						Type: &hostPathDirectory,
+					},
+				},
+			},
+		},
+	}
 }
 
 func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
@@ -309,98 +319,6 @@ func (r *DriverAndPluginReconciler) prepareBuildConfigMap(ctx context.Context, d
 	}
 
 	return err
-}
-
-func (r *DriverAndPluginReconciler) handleDevicePlugin(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
-	devicePluginDS := &appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: devConfig.Namespace,
-			Name:      getDevicePluginName(devConfig),
-		},
-	}
-	logger := log.FromContext(ctx)
-	opRes, err := controllerutil.CreateOrPatch(ctx, r.client, devicePluginDS, func() error {
-		return r.setDevicePluginAsDesired(ctx, devicePluginDS, devConfig)
-	})
-	if err == nil {
-		logger.Info("Reconciled Device Plugin daemonset", "name", devicePluginDS.Name, "result", opRes)
-	}
-	return err
-}
-
-func (r *DriverAndPluginReconciler) setDevicePluginAsDesired(ctx context.Context, ds *appsv1.DaemonSet, devConfig *amdv1alpha1.DeviceConfig) error {
-	if ds == nil {
-		return fmt.Errorf("input daemonset cannot be nil")
-	}
-
-	containerVolumeMounts := []v1.VolumeMount{
-		{
-			Name:      kubeletDevicePluginsVolumeName,
-			MountPath: kubeletDevicePluginsPath,
-		},
-		{
-			Name:      "sys",
-			MountPath: "/sys",
-		},
-	}
-
-	hostPathDirectory := v1.HostPathDirectory
-
-	devicePluginVolumes := []v1.Volume{
-		{
-			Name: kubeletDevicePluginsVolumeName,
-			VolumeSource: v1.VolumeSource{
-				HostPath: &v1.HostPathVolumeSource{
-					Path: kubeletDevicePluginsPath,
-					Type: &hostPathDirectory,
-				},
-			},
-		},
-		{
-			Name: "sys",
-			VolumeSource: v1.VolumeSource{
-				HostPath: &v1.HostPathVolumeSource{
-					Path: "/sys",
-					Type: &hostPathDirectory,
-				},
-			},
-		},
-	}
-	standardLabels := map[string]string{devicePluginLabel: devConfig.Name}
-	nodeSelector := map[string]string{getKMMModuleReadyNodeLabel(devConfig.Namespace, devConfig.Name): ""}
-	devicePluginImage := devConfig.Spec.DevicePluginImage
-	if devicePluginImage == "" {
-		devicePluginImage = defaultDevicePluginImage
-	}
-	ds.Spec = appsv1.DaemonSetSpec{
-		Selector: &metav1.LabelSelector{MatchLabels: standardLabels},
-		Template: v1.PodTemplateSpec{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels: standardLabels,
-			},
-			Spec: v1.PodSpec{
-				Containers: []v1.Container{
-					{
-						Name:            "device-plugin",
-						Image:           devicePluginImage,
-						ImagePullPolicy: v1.PullAlways,
-						SecurityContext: &v1.SecurityContext{Privileged: pointer.Bool(true)},
-						VolumeMounts:    containerVolumeMounts,
-					},
-				},
-				PriorityClassName: "system-node-critical",
-				NodeSelector:      nodeSelector,
-				Tolerations: []v1.Toleration{
-					{
-						Key:      "CriticalAddonsOnly",
-						Operator: v1.TolerationOpExists,
-					},
-				},
-				Volumes: devicePluginVolumes,
-			},
-		},
-	}
-	return controllerutil.SetControllerReference(devConfig, ds, r.scheme)
 }
 
 func getKMMModuleReadyNodeLabel(namespace, moduleName string) string {
