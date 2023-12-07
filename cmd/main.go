@@ -32,6 +32,7 @@ import (
 
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	gpuev1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
+	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/kmmmodule"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/cmd"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/config"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/controllers"
@@ -85,11 +86,12 @@ func main() {
 	}
 
 	client := mgr.GetClient()
-	dpc := controllers.NewDriverAndPluginReconciler(
+	kmmHandler := kmmmodule.NewKMMModule(client, scheme)
+	dcr := controllers.NewDeviceConfigReconciler(
 		client,
-		scheme)
-	if err = dpc.SetupWithManager(mgr); err != nil {
-		cmd.FatalError(setupLogger, err, "unable to create controller", "name", controllers.DriverAndPluginReconcilerName)
+		kmmHandler)
+	if err = dcr.SetupWithManager(mgr); err != nil {
+		cmd.FatalError(setupLogger, err, "unable to create controller", "name", controllers.DeviceConfigReconcilerName)
 	}
 
 	ctx := ctrl.SetupSignalHandler()

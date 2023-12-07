@@ -22,17 +22,6 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - apps
-  resources:
-  - daemonsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
   - ""
   resources:
   - configmaps
@@ -42,14 +31,6 @@ rules:
   - get
   - list
   - patch
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - kmm.sigs.x-k8s.io
