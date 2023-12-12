@@ -32,10 +32,10 @@ import (
 
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	gpuev1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
-	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/kmmmodule"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/cmd"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/config"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/controllers"
+	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/kmmmodule"
 	//+kubebuilder:scaffold:imports
 )
 

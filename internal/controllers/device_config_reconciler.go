@@ -34,8 +34,8 @@ import (
 )
 
 const (
-	DeviceConfigReconcilerName  = "DriverAndPluginReconciler"
-	deviceConfigFinalizer          = "amd.node.kubernetes.io/deviceconfig-finalizer"
+	DeviceConfigReconcilerName = "DriverAndPluginReconciler"
+	deviceConfigFinalizer      = "amd.node.kubernetes.io/deviceconfig-finalizer"
 )
 
 // ModuleReconciler reconciles a Module object
@@ -112,25 +112,25 @@ func (r *DeviceConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return res, nil
 }
 
-type deviceConfigReconcilerHelperAPI interface
-{
+//go:generate mockgen -source=device_config_reconciler.go -package=controllers -destination=mock_device_config_reconciler.go deviceConfigReconcilerHelperAPI
+type deviceConfigReconcilerHelperAPI interface {
 	getRequestedDeviceConfig(ctx context.Context, namespacedName types.NamespacedName) (*amdv1alpha1.DeviceConfig, error)
 	finalizeDeviceConfig(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
 	setFinalizer(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
 	handleKMMModule(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
-	handleBuildConfigMap(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error 
+	handleBuildConfigMap(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
 }
 
 type deviceConfigReconcilerHelper struct {
-        client          client.Client
+	client     client.Client
 	kmmHandler kmmmodule.KMMModuleAPI
 }
 
 func newDeviceConfigReconcilerHelper(client client.Client, kmmHandler kmmmodule.KMMModuleAPI) deviceConfigReconcilerHelperAPI {
-        return &deviceConfigReconcilerHelper{
-                client:          client,
+	return &deviceConfigReconcilerHelper{
+		client:     client,
 		kmmHandler: kmmHandler,
-        }
+	}
 }
 
 func (dcrh *deviceConfigReconcilerHelper) getRequestedDeviceConfig(ctx context.Context, namespacedName types.NamespacedName) (*amdv1alpha1.DeviceConfig, error) {
@@ -175,23 +175,23 @@ func (dcrh *deviceConfigReconcilerHelper) finalizeDeviceConfig(ctx context.Conte
 }
 
 func (dcrh *deviceConfigReconcilerHelper) handleBuildConfigMap(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
-        buildDockerfileCM := &v1.ConfigMap{
-                ObjectMeta: metav1.ObjectMeta{
-                        Namespace: devConfig.Namespace,
-                        Name:      getDockerfileCMName(devConfig),
-                },
-        }
+	buildDockerfileCM := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: devConfig.Namespace,
+			Name:      getDockerfileCMName(devConfig),
+		},
+	}
 
-        logger := log.FromContext(ctx)
-        opRes, err := controllerutil.CreateOrPatch(ctx, dcrh.client, buildDockerfileCM, func() error {
+	logger := log.FromContext(ctx)
+	opRes, err := controllerutil.CreateOrPatch(ctx, dcrh.client, buildDockerfileCM, func() error {
 		return dcrh.kmmHandler.SetBuildConfigMapAsDesired(buildDockerfileCM, devConfig)
-        })
+	})
 
-        if err == nil {
-                logger.Info("Reconciled KMM build dockerfile ConfigMap", "name", buildDockerfileCM.Name, "result", opRes)
-        }
+	if err == nil {
+		logger.Info("Reconciled KMM build dockerfile ConfigMap", "name", buildDockerfileCM.Name, "result", opRes)
+	}
 
-        return err
+	return err
 }
 
 func (dcrh *deviceConfigReconcilerHelper) handleKMMModule(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
