@@ -1,4 +1,4 @@
-FROM quay.io/yshnaidm/amd_gpu_sources:el9 as sources
+FROM quay.io/yshnaidm/amd_gpu_sources:el9-6.0 as sources
 ARG DTK_AUTO
 FROM ${DTK_AUTO} as builder
 ARG KERNEL_VERSION
