@@ -30,6 +30,10 @@ type DeviceConfigSpec struct {
 	// +optional
 	DriversImage string `json:"driversImage,omitempty"`
 
+	// version of the drivers source code, can be used as part of image of dockerfile source image
+	// +optional
+	DriversVersion string `json:"driversVersion,omitempty"`
+
 	// device plugin image
 	// +optional
 	DevicePluginImage string `json:"devicePluginImage,omitempty"`

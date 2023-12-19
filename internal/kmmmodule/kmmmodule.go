@@ -2,6 +2,7 @@ package kmmmodule
 
 import (
 	_ "embed"
+	"fmt"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,7 +20,8 @@ const (
 	gpuDriverModuleName            = "amdgpu"
 	imageFirmwarePath              = "firmwareDir/updates"
 	defaultDevicePluginImage       = "rocm/k8s-device-plugin"
-	defaultDriversImage            = "image-registry.openshift-image-registry.svc:5000/$MOD_NAMESPACE/amd_gpu_kmm_modules:$KERNEL_VERSION"
+	defaultDriversImageTemplate    = "image-registry.openshift-image-registry.svc:5000/$MOD_NAMESPACE/amd_gpu_kmm_modules:%s-$KERNEL_VERSION"
+	defaultDriversVersion          = "el9-6.0"
 )
 
 var (
@@ -49,21 +51,31 @@ func (km *kmmModule) SetBuildConfigMapAsDesired(buildCM *v1.ConfigMap, devConfig
 	if buildCM.Data == nil {
 		buildCM.Data = make(map[string]string)
 	}
+
 	buildCM.Data["dockerfile"] = buildDockerfile
 	return controllerutil.SetControllerReference(devConfig, buildCM, km.scheme)
 }
 
 func (km *kmmModule) SetKMMModuleAsDesired(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) error {
-	setKMMModuleLoader(mod, devConfig)
+	err := setKMMModuleLoader(mod, devConfig)
+	if err != nil {
+		return fmt.Errorf("failed to set KMM Module: %v", err)
+	}
 	setKMMDevicePlugin(mod, devConfig)
 	return controllerutil.SetControllerReference(devConfig, mod, km.scheme)
 }
 
-func setKMMModuleLoader(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) {
+func setKMMModuleLoader(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) error {
+	driversVersion := devConfig.Spec.DriversVersion
+	if driversVersion == "" {
+		driversVersion = defaultDriversVersion
+	}
+
 	driversImage := devConfig.Spec.DriversImage
 	if driversImage == "" {
-		driversImage = defaultDriversImage
+		driversImage = fmt.Sprintf(defaultDriversImageTemplate, driversVersion)
 	}
+
 	mod.Spec.ModuleLoader.Container = kmmv1beta1.ModuleLoaderContainerSpec{
 		Modprobe: kmmv1beta1.ModprobeSpec{
 			ModuleName:   gpuDriverModuleName,
@@ -78,12 +90,19 @@ func setKMMModuleLoader(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceCon
 					DockerfileConfigMap: &v1.LocalObjectReference{
 						Name: getDockerfileCMName(devConfig),
 					},
+					BuildArgs: []kmmv1beta1.BuildArg{
+						{
+							Name:  "DRIVERS_VERSION",
+							Value: driversVersion,
+						},
+					},
 				},
 			},
 		},
 	}
 	mod.Spec.ImageRepoSecret = devConfig.Spec.ImageRepoSecret
 	mod.Spec.Selector = devConfig.Spec.Selector
+	return nil
 }
 
 func setKMMDevicePlugin(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceConfig) {
