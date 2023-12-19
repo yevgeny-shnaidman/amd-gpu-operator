@@ -21,6 +21,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	AMDPCIVendorID = "1002"
+)
+
 // DeviceConfigSpec describes how the AMD GPU operator should enable AMD GPU device for customer's use.
 type DeviceConfigSpec struct {
 	// if the in-tree driver should be used instead of OOT drivers
@@ -43,7 +47,8 @@ type DeviceConfigSpec struct {
 	ImageRepoSecret *v1.LocalObjectReference `json:"imageRepoSecret,omitempty"`
 
 	// Selector describes on which nodes the GPU Operator should enable the GPU device.
-	Selector map[string]string `json:"selector"`
+	// +optional
+	Selector map[string]string `json:"selector,omitempty"`
 }
 
 // DaemonSetStatus contains the status for a daemonset deployed during

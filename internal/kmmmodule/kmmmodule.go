@@ -101,7 +101,7 @@ func setKMMModuleLoader(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceCon
 		},
 	}
 	mod.Spec.ImageRepoSecret = devConfig.Spec.ImageRepoSecret
-	mod.Spec.Selector = devConfig.Spec.Selector
+	mod.Spec.Selector = getNodeSelector(devConfig)
 	return nil
 }
 
@@ -137,4 +137,14 @@ func setKMMDevicePlugin(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceCon
 
 func getDockerfileCMName(devConfig *amdv1alpha1.DeviceConfig) string {
 	return "dockerfile-" + devConfig.Name
+}
+
+func getNodeSelector(devConfig *amdv1alpha1.DeviceConfig) map[string]string {
+	if devConfig.Spec.Selector != nil {
+		return devConfig.Spec.Selector
+	}
+
+	ns := make(map[string]string, 0)
+	ns[fmt.Sprintf("feature.node.kubernetes.io/pci-%s.present", amdv1alpha1.AMDPCIVendorID)] = "true"
+	return ns
 }

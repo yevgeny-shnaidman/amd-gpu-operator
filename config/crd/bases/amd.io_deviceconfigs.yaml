@@ -65,8 +65,6 @@ spec:
               useInTreeDrivers:
                 description: if the in-tree driver should be used instead of OOT drivers
                 type: boolean
-            required:
-            - selector
             type: object
           status:
             description: ModuleStatus defines the observed state of Module.
