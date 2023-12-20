@@ -9,20 +9,19 @@ RUN ./amd/dkms/pre-build.sh ${KERNEL_VERSION}
 RUN make TTM_NAME=amdttm SCHED_NAME=amd-sched -C /usr/src/kernels/${KERNEL_VERSION} M=/amdgpu-drivers-source
 RUN ./amd/dkms/post-build.sh ${KERNEL_VERSION}
 
-RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdgpu
-RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdkcl
-RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdxcp
-RUN mkdir -p /lib/modules/${KERNEL_VERSION}/scheduler
-RUN mkdir -p /lib/modules/${KERNEL_VERSION}/ttm
-RUN rm -f /lib/modules/${KERNEL_VERSION}/kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.xz
-
-RUN cp /amdgpu-drivers-source/amd/amdgpu/amdgpu.ko /lib/modules/${KERNEL_VERSION}/amd/amdgpu/amdgpu.ko
-RUN cp /amdgpu-drivers-source/amd/amdkcl/amdkcl.ko /lib/modules/${KERNEL_VERSION}/amd/amdkcl/amdkcl.ko
-RUN cp /amdgpu-drivers-source/amd/amdxcp/amdxcp.ko /lib/modules/${KERNEL_VERSION}/amd/amdxcp/amdxcp.ko
-RUN cp /amdgpu-drivers-source/scheduler/amd-sched.ko /lib/modules/${KERNEL_VERSION}/scheduler/amd-sched.ko
-RUN cp /amdgpu-drivers-source/ttm/amdttm.ko /lib/modules/${KERNEL_VERSION}/ttm/amdttm.ko
-RUN cp /amdgpu-drivers-source/amddrm_buddy.ko /lib/modules/${KERNEL_VERSION}/amddrm_buddy.ko
-RUN cp /amdgpu-drivers-source/amddrm_ttm_helper.ko /lib/modules/${KERNEL_VERSION}/amddrm_ttm_helper.ko
+RUN mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdgpu && \
+    mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdkcl && \
+    mkdir -p /lib/modules/${KERNEL_VERSION}/amd/amdxcp && \
+    mkdir -p /lib/modules/${KERNEL_VERSION}/scheduler && \
+    mkdir -p /lib/modules/${KERNEL_VERSION}/ttm && \
+    rm -f /lib/modules/${KERNEL_VERSION}/kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.xz && \
+    cp /amdgpu-drivers-source/amd/amdgpu/amdgpu.ko /lib/modules/${KERNEL_VERSION}/amd/amdgpu/amdgpu.ko && \
+    cp /amdgpu-drivers-source/amd/amdkcl/amdkcl.ko /lib/modules/${KERNEL_VERSION}/amd/amdkcl/amdkcl.ko && \
+    cp /amdgpu-drivers-source/amd/amdxcp/amdxcp.ko /lib/modules/${KERNEL_VERSION}/amd/amdxcp/amdxcp.ko && \
+    cp /amdgpu-drivers-source/scheduler/amd-sched.ko /lib/modules/${KERNEL_VERSION}/scheduler/amd-sched.ko && \
+    cp /amdgpu-drivers-source/ttm/amdttm.ko /lib/modules/${KERNEL_VERSION}/ttm/amdttm.ko && \
+    cp /amdgpu-drivers-source/amddrm_buddy.ko /lib/modules/${KERNEL_VERSION}/amddrm_buddy.ko && \
+    cp /amdgpu-drivers-source/amddrm_ttm_helper.ko /lib/modules/${KERNEL_VERSION}/amddrm_ttm_helper.ko
 
 RUN depmod ${KERNEL_VERSION}
 
