@@ -7,7 +7,7 @@ resources:
 images:
 - name: controller
   newName: quay.io/yshnaidm/amd-gpu-operator
-  newTag: check-6.0
+  newTag: check-different-namespace
 - name: worker
   newName: quay.io/edge-infrastructure/kernel-module-management-worker
   newTag: latest

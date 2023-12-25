@@ -3,7 +3,8 @@ kind: Kustomization
 
 resources:
   - ../rbac-base
-  - device_plugin_service_account.yaml
-  - device_plugin_cluster_role.yaml
-  - device_plugin_role_binding.yaml
   - role.yaml
+  - kmm_module_loader_role_binding.yaml
+  - kmm_module_loader_service_account.yaml
+  - kmm_device_plugin_role_binding.yaml
+  - kmm_device_plugin_service_account.yaml

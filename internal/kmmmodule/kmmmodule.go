@@ -100,6 +100,7 @@ func setKMMModuleLoader(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceCon
 			},
 		},
 	}
+	mod.Spec.ModuleLoader.ServiceAccountName = "amd-gpu-operator-kmm-module-loader"
 	mod.Spec.ImageRepoSecret = devConfig.Spec.ImageRepoSecret
 	mod.Spec.Selector = getNodeSelector(devConfig)
 	return nil
@@ -112,6 +113,7 @@ func setKMMDevicePlugin(mod *kmmv1beta1.Module, devConfig *amdv1alpha1.DeviceCon
 	}
 	hostPathDirectory := v1.HostPathDirectory
 	mod.Spec.DevicePlugin = &kmmv1beta1.DevicePluginSpec{
+		ServiceAccountName: "amd-gpu-operator-kmm-device-plugin",
 		Container: kmmv1beta1.DevicePluginContainerSpec{
 			Image: devicePluginImage,
 			VolumeMounts: []v1.VolumeMount{
