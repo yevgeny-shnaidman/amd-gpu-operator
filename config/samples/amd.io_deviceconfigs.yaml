@@ -1,0 +1,5 @@
+apiVersion: amd.io/v1alpha1
+kind: DeviceConfig
+metadata:
+  name: dc-internal-registry
+  namespace: openshift-amd-gpu

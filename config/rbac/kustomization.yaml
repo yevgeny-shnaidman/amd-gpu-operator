@@ -6,5 +6,7 @@ resources:
   - role.yaml
   - kmm_module_loader_role_binding.yaml
   - kmm_module_loader_service_account.yaml
+  - kmm_module_loader_cluster_role.yaml
   - kmm_device_plugin_role_binding.yaml
   - kmm_device_plugin_service_account.yaml
+  - kmm_device_plugin_cluster_role.yaml

@@ -6,7 +6,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kmm-operator-device-plugin
+  name: kmm-device-plugin
 subjects:
 - kind: ServiceAccount
   name: kmm-device-plugin

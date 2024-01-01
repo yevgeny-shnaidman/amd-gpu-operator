@@ -1,9 +1,9 @@
-# VERSION defines the project version for the bundle.
+# PROJECT_VERSION defines the project version for the bundle.
 # Update this value when you upgrade the version of your project.
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
-# - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
-# - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
-VERSION ?= 0.0.1
+# - use the PROJECT_VERSION as arg of the bundle target (e.g make bundle PROJECT_VERSION=0.0.2)
+# - use environment variables to overwrite this value (e.g export PROJECT_VERSION=0.0.2)
+PROJECT_VERSION ?= 0.0.1
 
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
 
@@ -11,7 +11,7 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
 # This variable is used to construct full image tags for bundle and catalog images.
 #
 # For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
-# quay.io/edge-infrastructure/kernel-module-management-bundle:$VERSION and quay.io/edge-infrastructure/kernel-module-management-catalog:$VERSION.
+# quay.io/yshnaidm/amd-gpu-operator-bundle:$PROJECT_VERSION and quay.io/yshnaidm/amd-gpu-operator-catalog:$PROJECT_VERSION.
 IMAGE_TAG_BASE ?= quay.io/yshnaidm/amd-gpu-operator
 
 # This is the default tag of all images made by this Makefile.
@@ -19,6 +19,35 @@ IMAGE_TAG ?= latest
 
 # Image URL to use all building/pushing image targets
 IMG ?= $(IMAGE_TAG_BASE):$(IMAGE_TAG)
+
+# BUNDLE_IMG defines the image:tag used for the bundle.
+# You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
+BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:v$(PROJECT_VERSION)
+
+INDEX_IMG := $(IMAGE_TAG_BASE)-index:v$(PROJECT_VERSION)
+
+
+# CHANNELS define the bundle channels used in the bundle.
+# Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
+# To re-generate a bundle for other specific channels without changing the standard setup, you can:
+# - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=candidate,fast,stable)
+# - use environment variables to overwrite this value (e.g export CHANNELS="candidate,fast,stable")
+ifneq ($(origin CHANNELS), undefined)
+BUNDLE_CHANNELS := --channels=$(CHANNELS)
+endif
+
+# DEFAULT_CHANNEL defines the default channel used in the bundle.
+# Add a new line here if you would like to change its default config. (E.g DEFAULT_CHANNEL = "stable")
+# To re-generate a bundle for any other default channel without changing the default setup, you can:
+# - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
+# - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
+ifneq ($(origin DEFAULT_CHANNEL), undefined)
+BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
+endif
+BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
+
+# BUNDLE_GEN_FLAGS are the flags passed to the operator-sdk generate bundle command
+BUNDLE_GEN_FLAGS ?= -q --overwrite --version $(PROJECT_VERSION) $(BUNDLE_METADATA_OPTS)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
@@ -95,7 +124,7 @@ lint: golangci-lint ## Run golangci-lint against code.
 ##@ Build
 
 manager: $(shell find -name "*.go") go.mod go.sum  ## Build manager binary.
-	go build -ldflags="-X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT)" -o $@ ./cmd
+	go build -ldflags="-X main.Version=$(PROJECT_VERSION) -X main.GitCommit=$(GIT_COMMIT)" -o $@ ./cmd
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
@@ -127,8 +156,8 @@ KUSTOMIZE_CONFIG_HUB_DEFAULT ?= config/default-hub
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	oc apply -k $(KUSTOMIZE_CONFIG_DEFAULT)
-	#$(KUSTOMIZE) build config/default > yaml.file
+	#oc apply -k $(KUSTOMIZE_CONFIG_DEFAULT)
+	$(KUSTOMIZE) build config/default > yaml.file
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -173,6 +202,42 @@ operator-sdk:
 		set -e ;\
 		echo "Downloading ${OPERATOR_SDK}"; \
 		mkdir -p $(dir ${OPERATOR_SDK}) ;\
-		curl -Lo ${OPERATOR_SDK} 'https://github.com/operator-framework/operator-sdk/releases/download/v1.25.2/operator-sdk_linux_amd64'; \
+		curl -Lo ${OPERATOR_SDK} 'https://github.com/operator-framework/operator-sdk/releases/download/v1.32.0/operator-sdk_linux_amd64'; \
 		chmod +x ${OPERATOR_SDK}; \
 	fi
+
+.PHONY: bundle
+bundle: operator-sdk manifests kustomize
+	rm -fr ./bundle
+	${OPERATOR_SDK} generate kustomize manifests --apis-dir api
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	cd config/manager-base && $(KUSTOMIZE) edit set image controller=$(IMG)
+	OPERATOR_SDK="${OPERATOR_SDK}" \
+		     BUNDLE_GEN_FLAGS="${BUNDLE_GEN_FLAGS} --extra-service-accounts amd-gpu-operator-kmm-device-plugin,amd-gpu-operator-kmm-module-loader" \
+		     PKG=amd-gpu-operator \
+		     SOURCE_DIR=$(dir $(realpath $(lastword $(MAKEFILE_LIST)))) \
+		     ./hack/generate-bundle
+
+	${OPERATOR_SDK} bundle validate ./bundle
+
+.PHONY: bundle-build
+bundle-build: ## Build the bundle image.
+	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+
+
+.PHONY: opm
+OPM = ./bin/opm
+opm:
+	@if [ ! -f ${OPM} ]; then \
+                set -e ;\
+                echo "Downloading ${OPM}"; \
+                mkdir -p $(dir ${OPM}) ;\
+                curl -Lo ${OPM}.tar 'https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-linux.tar.gz'; \
+		tar -C $(dir ${OPM}) -xzf ${OPM}.tar; \
+                chmod +x ${OPM}; \
+		rm -f ${OPM}.tar; \
+        fi
+
+.PHONY: index
+index: opm
+	${OPM} index add --bundles ${BUNDLE_IMG} --tag ${INDEX_IMG}
