@@ -1,0 +1,24 @@
+apiVersion: kmm.sigs.x-k8s.io/v1beta1
+kind: Module
+metadata:
+  name: moduleName
+  namespace: moduleNamespace
+spec:
+  moduleLoader:
+    container:
+      modprobe:
+        moduleName: amdgpu
+        firmwarePath: firmwareDir/updates
+      kernelMappings:
+        - regexp: "^.+$"
+          containerImage: driversImage
+          InTreeModuleToRemove: amdgpu
+          build:
+            buildArgs:
+              - name: DRIVERS_VERSION
+                value: driversVersion
+            dockerfileConfigMap:
+              name: dockerfile
+    serviceAccountName: "amd-gpu-operator-kmm-module-loader"
+  selector:
+    feature.node.kubernetes.io/pci-1002.present: "true"
