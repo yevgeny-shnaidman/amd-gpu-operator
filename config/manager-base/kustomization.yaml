@@ -9,6 +9,9 @@ patches:
 - path: manager_config_patch.yaml
 
 images:
+- name: controller
+  newName: quay.io/yshnaidm/amd-gpu-operator
+  newTag: latest
 - name: gcr.io/kubebuilder/kube-rbac-proxy
   newName: registry.redhat.io/openshift4/ose-kube-rbac-proxy
   newTag: v4.13
