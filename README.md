@@ -171,14 +171,14 @@ laptop ~ % oc apply -f 2-catalog-kmm-2.0.1.yml
 catalogsource.operators.coreos.com/kmm-test created
 ```
 
-![alt_text](images/kmm2.png)
+![alt_text](docs/images/kmm2.png)
 Click on the one tagged “KMM operator”.
 
-![alt_text](images/kmm3.png)
+![alt_text](docs/images/kmm3.png)
 
 Click on “Install”.
 
-![alt_text](images/kmm4.png)
+![alt_text](docs/images/kmm4.png)
 
 To verify that the Operator deployment is successful, run the following command:
 ```bash
@@ -192,22 +192,22 @@ Kernel Module Management Operator is installed and ready to be used by the AMD G
 ## Install the Node Feature Discovery Operator
 
 In the OpenShift Console, in Operators > OperatorHub search: “Node Feature Discovery”
-![alt_text](images/nfd1.png)
+![alt_text](docs/images/nfd1.png)
 
 Click on “Node Feature Discovery”.
 
-![alt_text](images/nfd2.png)
+![alt_text](docs/images/nfd2.png)
 Click on “install”.
 
-![alt_text](images/nfd3.png)
+![alt_text](docs/images/nfd3.png)
 Click on “View Operator”.
 
 Create the NFD instance:
 
-![alt_text](images/nfd4.png)
+![alt_text](docs/images/nfd4.png)
 Click on “Create Instance”.
 
-![alt_text](images/nfd5.png)
+![alt_text](docs/images/nfd5.png)
 
 You can see the NFD label `feature.node.kubernetes.io/pci-1002.present=true`
 
