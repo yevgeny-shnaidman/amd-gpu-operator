@@ -146,7 +146,7 @@ No amd modules are loaded after the reboot:
 
 Check the “kernel module management” status before in the catalog configuration.
 
-![alt_text](images/kmm1.png)
+![alt_text](docs/images/kmm1.png)
 
 Prepare the catalog configuration:
 ```bash
@@ -231,19 +231,19 @@ laptop ~ %  oc describe node | egrep "Resource.*Requests|amd.com/gpu"
   Resource           Requests      Limits
 ```
 
-![alt_text](images/amd-gpu-operator1.png)
+![alt_text](docs/images/amd-gpu-operator1.png)
 Click on "AMD GPU Operator".
 
-![alt_text](images/amd-gpu-operator2.png)
+![alt_text](docs/images/amd-gpu-operator2.png)
 Click on "Install".
 
-![alt_text](images/amd-gpu-operator3.png)
+![alt_text](docs/images/amd-gpu-operator3.png)
 Click on "Continue".
 
-![alt_text](images/amd-gpu-operator4.png)
+![alt_text](docs/images/amd-gpu-operator4.png)
 Click on "Install".
 
-![alt_text](images/amd-gpu-operator5.png)
+![alt_text](docs/images/amd-gpu-operator5.png)
 Click on "View Operator".
 
 Check if the operator has created the amd-gpu-operator-controller-manager:
@@ -254,10 +254,10 @@ NAME                                                  READY   STATUS    RESTARTS
 amd-gpu-operator-controller-manager-988c47468-f4c9l   2/2     Running   0          2m22s
 ```
 
-![alt_text](images/amd-gpu-operator6.png)
+![alt_text](docs/images/amd-gpu-operator6.png)
 Click on "Create instance".
 
-![alt_text](images/amd-gpu-operator7.png)
+![alt_text](docs/images/amd-gpu-operator7.png)
 Click on "Create".
 
 A build is starting:
