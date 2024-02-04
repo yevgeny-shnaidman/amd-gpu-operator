@@ -23,6 +23,8 @@ import (
 	kmmv1beta1 "github.com/rh-ecosystem-edge/kernel-module-management/api/v1beta1"
 	amdv1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/kmmmodule"
+	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/nodelabeller"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,8 +47,9 @@ type DeviceConfigReconciler struct {
 
 func NewDeviceConfigReconciler(
 	client client.Client,
-	kmmHandler kmmmodule.KMMModuleAPI) *DeviceConfigReconciler {
-	helper := newDeviceConfigReconcilerHelper(client, kmmHandler)
+	kmmHandler kmmmodule.KMMModuleAPI,
+	nlHandler nodelabeller.NodeLabeller) *DeviceConfigReconciler {
+	helper := newDeviceConfigReconcilerHelper(client, kmmHandler, nlHandler)
 	return &DeviceConfigReconciler{
 		helper: helper,
 	}
@@ -57,6 +60,7 @@ func (r *DeviceConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&amdv1alpha1.DeviceConfig{}).
 		Owns(&kmmv1beta1.Module{}).
+		Owns(&appsv1.DaemonSet{}).
 		Named(DeviceConfigReconcilerName).
 		Complete(r)
 }
@@ -66,6 +70,7 @@ func (r *DeviceConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups=amd.io,resources=deviceconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;delete;get;list;patch;watch;create
+//+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=create;delete;get;list;patch;watch
 
 func (r *DeviceConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	res := ctrl.Result{}
@@ -108,6 +113,14 @@ func (r *DeviceConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return res, fmt.Errorf("failed to handle KMM module for DeviceConfig %s: %v", req.NamespacedName, err)
 	}
 
+	/*
+	logger.Info("start node labeller reconciliation")
+	err = r.helper.handleNodeLabeller(ctx, devConfig)
+	if err != nil {
+		return res, fmt.Errorf("failed to handle node labeller for DeviceConfig %s: %v", req.NamespacedName, err)
+	}
+	*/
+
 	// [TODO] add status handling for DeviceConfig
 	return res, nil
 }
@@ -119,17 +132,20 @@ type deviceConfigReconcilerHelperAPI interface {
 	setFinalizer(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
 	handleKMMModule(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
 	handleBuildConfigMap(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
+	handleNodeLabeller(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error
 }
 
 type deviceConfigReconcilerHelper struct {
 	client     client.Client
 	kmmHandler kmmmodule.KMMModuleAPI
+	nlHandler  nodelabeller.NodeLabeller
 }
 
-func newDeviceConfigReconcilerHelper(client client.Client, kmmHandler kmmmodule.KMMModuleAPI) deviceConfigReconcilerHelperAPI {
+func newDeviceConfigReconcilerHelper(client client.Client, kmmHandler kmmmodule.KMMModuleAPI, nlHandler nodelabeller.NodeLabeller) deviceConfigReconcilerHelperAPI {
 	return &deviceConfigReconcilerHelper{
 		client:     client,
 		kmmHandler: kmmHandler,
+		nlHandler:  nlHandler,
 	}
 }
 
@@ -153,9 +169,25 @@ func (dcrh *deviceConfigReconcilerHelper) setFinalizer(ctx context.Context, devC
 }
 
 func (dcrh *deviceConfigReconcilerHelper) finalizeDeviceConfig(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
-	mod := kmmv1beta1.Module{}
-
 	logger := log.FromContext(ctx)
+/*
+	nlDS := appsv1.DaemonSet{}
+	namespacedName := types.NamespacedName{
+		Namespace: devConfig.Namespace,
+		Name:      devConfig.Name + "node-labeller",
+	}
+
+	err := dcrh.client.Get(ctx, namespacedName, &nlDS)
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get nodelabeller daemonset %s: %v", namespacedName, err)
+		}
+	} else {
+		logger.Info("deleting nodelabeller daemonset", "daemonset", namespacedName)
+		return dcrh.client.Delete(ctx, &nlDS)
+	}
+*/
+	mod := kmmv1beta1.Module{}
 	namespacedName := types.NamespacedName{
 		Namespace: devConfig.Namespace,
 		Name:      devConfig.Name,
@@ -163,14 +195,14 @@ func (dcrh *deviceConfigReconcilerHelper) finalizeDeviceConfig(ctx context.Conte
 	err := dcrh.client.Get(ctx, namespacedName, &mod)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			logger.Info("module %s already deleted, removing finalizer", namespacedName)
+			logger.Info("module already deleted, removing finalizer", "module", namespacedName)
 			devConfigCopy := devConfig.DeepCopy()
 			controllerutil.RemoveFinalizer(devConfig, deviceConfigFinalizer)
 			return dcrh.client.Patch(ctx, devConfig, client.MergeFrom(devConfigCopy))
 		}
 		return fmt.Errorf("failed to get the requested Module %s: %v", namespacedName, err)
 	}
-	logger.Info("deleting KMM Module %s", namespacedName)
+	logger.Info("deleting KMM Module", "module", namespacedName)
 	return dcrh.client.Delete(ctx, &mod)
 }
 
@@ -212,6 +244,22 @@ func (dcrh *deviceConfigReconcilerHelper) handleKMMModule(ctx context.Context, d
 
 	return err
 
+}
+
+func (dcrh *deviceConfigReconcilerHelper) handleNodeLabeller(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "node-labeller"},
+	}
+	logger := log.FromContext(ctx)
+	opRes, err := controllerutil.CreateOrPatch(ctx, dcrh.client, ds, func() error {
+		return dcrh.nlHandler.SetNodeLabellerAsDesired(ds, devConfig)
+	})
+
+	if err == nil {
+		logger.Info("Reconciled node labeller", "namespace", ds.Namespace, "name", ds.Name, "result", opRes)
+	}
+
+	return err
 }
 
 func getDockerfileCMName(devConfig *amdv1alpha1.DeviceConfig) string {

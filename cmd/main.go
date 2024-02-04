@@ -36,6 +36,7 @@ import (
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/config"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/controllers"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/kmmmodule"
+	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/nodelabeller"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -87,9 +88,11 @@ func main() {
 
 	client := mgr.GetClient()
 	kmmHandler := kmmmodule.NewKMMModule(client, scheme)
+	nlHandler := nodelabeller.NewNodeLabeller(scheme)
 	dcr := controllers.NewDeviceConfigReconciler(
 		client,
-		kmmHandler)
+		kmmHandler,
+		nlHandler)
 	if err = dcr.SetupWithManager(mgr); err != nil {
 		cmd.FatalError(setupLogger, err, "unable to create controller", "name", controllers.DeviceConfigReconcilerName)
 	}

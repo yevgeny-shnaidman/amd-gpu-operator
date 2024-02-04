@@ -22,6 +22,17 @@ rules:
   verbs:
   - update
 - apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
   - ""
   resources:
   - configmaps

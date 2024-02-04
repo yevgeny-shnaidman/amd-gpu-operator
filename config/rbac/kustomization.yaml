@@ -10,3 +10,6 @@ resources:
   - kmm_device_plugin_role_binding.yaml
   - kmm_device_plugin_service_account.yaml
   - kmm_device_plugin_cluster_role.yaml
+  - node_labeller_service_account.yaml
+  - node_labeller_cluster_role.yaml
+  - node_labeller_role_binding.yaml
