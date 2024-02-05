@@ -1,0 +1,103 @@
+# Prometheus Monitor Service (Metrics)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: amd-gpu-metrics
+  name: node-metrics
+spec:
+  endpoints:
+  - path: /metrics
+    port: node-metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 20s
+  namespaceSelector:
+    matchNames:
+    - openshift-amd-gpu
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: amd-gpu
+      app.kubernetes.io/name: amd-gpu
+      app.kubernetes.io/part-of: amd-gpu
+      app.kubernetes.io/role: amd-gpu-metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-metrics
+  labels:
+    app.kubernetes.io/role: amd-gpu-metrics
+  annotations:
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app.kubernetes.io/role: amd-gpu-metrics
+  ports:
+    - protocol: TCP
+      port: 9110
+      targetPort: node-metrics
+      name: node-metrics
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-metrics
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: node-metrics
+rules:
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: node-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: node-metrics
+subjects:
+- kind: ServiceAccount
+  name: amd-gpu-operator-node-metrics
+  namespace: openshift-amd-gpu
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus-k8s
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-k8s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus-k8s
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: openshift-monitoring
+
+
