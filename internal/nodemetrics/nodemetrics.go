@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	metricsPortName = "node-metrics"
-	metricsPort     = 9110
-	metricsServiceAccount  = "amd-gpu-operator-node-metrics"
-	metrcisImage = "quay.io/yshnaidm/node-exporter:latest"
+	metricsPortName       = "node-metrics"
+	metricsPort           = 9110
+	metricsServiceAccount = "amd-gpu-operator-node-metrics"
+	metricsImage          = "quay.io/yshnaidm/node-exporter:latest"
 )
 
 //go:generate mockgen -source=nodemetrics.go -package=nodemetrics -destination=mock_nodemetrics.go NodeMetrics
@@ -60,7 +60,7 @@ func (nm *nodeMetrics) SetNodeMetricsAsDesired(ds *appsv1.DaemonSet, devConfig *
 				Containers: []v1.Container{
 					{
 						Name:            "node-metrics-container",
-						Image:           metrcisImage,
+						Image:           metricsImage,
 						ImagePullPolicy: v1.PullAlways,
 						SecurityContext: &v1.SecurityContext{
 							Privileged: pointer.Bool(true),
@@ -71,8 +71,8 @@ func (nm *nodeMetrics) SetNodeMetricsAsDesired(ds *appsv1.DaemonSet, devConfig *
 					},
 				},
 				NodeSelector:       nodeSelector,
-				ServiceAccountName: metrcisServiceAccount,
-				Volumes: volumes,
+				ServiceAccountName: metricsServiceAccount,
+				Volumes:            volumes,
 			},
 		},
 	}
