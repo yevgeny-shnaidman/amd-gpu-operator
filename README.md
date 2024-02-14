@@ -12,92 +12,113 @@ To install the AMD community release, an OpenShift administrator has to follow t
 |-----------------------|---------------------------|
 |	OpenShift CLI	|	Create the internal registry |
 |	OpenShift CLI	|	Blacklist the inbox drivers with a MachineConfig|
-|	OpenShift CLI	|	Install the Kernel Module Management Operator 2.0.1 pre-release with an external catalog |
-|	OpenShift Console	|	Deploy NFD |
-|	OpenShift Console	|	Deploy KMM operator |
+|	OpenShift Console	|	Install the Node Feature Discovery Operator |
+|	OpenShift Console	|	Install the Kernel Module Management Operator |
 |	OpenShift Console	|	Install the AMD GPU Operator |
 
-We have one OpenShift cluster deployed (Single Node OpenShift for example):
+We have one OpenShift cluster deployed (Single Node OpenShift, here):
 ```bash
 laptop ~ % oc get nodes
 NAME                                    STATUS   ROLES                         AGE   VERSION
-worker0.example.com   Ready    control-plane,master,worker   14h   v1.27.8+4fab27b
+worker0.example.com   Ready    control-plane,master,worker   35m   v1.27.9+e36e183
 ```
 
-OpenShift is running:
+We are using Red Hat OpenShift 4.14:
 ```bash
-laptop ~ % oc get nodes
-NAME                                    STATUS   ROLES                         AGE   VERSION
-worker0.example.com   Ready    control-plane,master,worker   14h   v1.27.8+4fab27b
-
 laptop ~ % oc get clusterversion
 NAME      VERSION   AVAILABLE   PROGRESSING   SINCE   STATUS
-version   4.14.8    True        False         14h     Cluster version is 4.14.8
+version   4.14.10   True        False         18m     Cluster version is 4.14.10
 ```
 
-We can see that one MI210 GPU accelerator is available on the node:
+We can see that one AMD MI210 GPU accelerator is available on the node:
 ```bash
-[core@worker0 ~]$ lspci | grep -i MI210
-19:00.0 Display controller: Advanced Micro Devices, Inc. [AMD/ATI] Aldebaran/MI200 [Instinct MI210] (rev 02)
+laptop ~ % oc debug node/worker0.example.com   
+
+sh-4.4# chroot /host
+
+sh-5.1# lspci | grep -i MI210
+b3:00.0 Display controller: Advanced Micro Devices, Inc. [AMD/ATI] Aldebaran/MI200 [Instinct MI210] (rev 02)
+
+sh-5.1# exit
+exit
+
+sh-4.4# exit
+exit
+
+Removing debug pod ...
 ```
 
-We will build and deploy the latest ROCm 6 drivers release:
+The AMD GPU Operator will build and deploy the latest ROCm 6 drivers release:
 [https://rocm.docs.amd.com/en/latest/deploy/linux/os-native/install.html](https://rocm.docs.amd.com/en/latest/deploy/linux/os-native/install.html)
 
 ## Create the internal registry
 
 Check before, we don’t have an internal registry:
 ```bash
-laptop ~ %  oc get pods -n openshift-image-registry
-
-NAME                                               READY   STATUS      RESTARTS   AGE
-cluster-image-registry-operator-74cbd85779-hg5rs   1/1     Running     1          15h
-image-pruner-28432800-v2hjd                        0/1     Completed   0          9h
-node-ca-27wlv                                      1/1     Running     1          14h
+laptop ~ % oc get pods -n openshift-image-registry
+NAME                                               READY   STATUS    RESTARTS   AGE
+cluster-image-registry-operator-79ffc48786-crfkc   1/1     Running   0          37m
+node-ca-nsknt                                      1/1     Running   0          20m
 ```
 
-Enable the internal registry:
+Configure the storage of the local image registry:
 ```bash
-laptop ~ %  oc patch configs.imageregistry.operator.openshift.io cluster --type merge --patch '{"spec":{"managementState":"Managed"}}'
+laptop ~ % oc patch configs.imageregistry.operator.openshift.io cluster --type merge --patch '{"spec":{"storage":{"emptyDir":{}}}}'
+config.imageregistry.operator.openshift.io/cluster patched
 ```
 
-The registry in running:
+Enable the local image registry:
 ```bash
-laptop ~ %  oc get pods -n openshift-image-registry  
-NAME                                               READY   STATUS      RESTARTS   AGE
-cluster-image-registry-operator-74cbd85779-hg5rs   1/1     Running     1          15h
-image-pruner-28432800-v2hjd                        0/1     Completed   0          9h
-image-registry-68b4f9ccc-bg68k                     0/1     Running     0          8s
-image-registry-f669759f4-95gsz                     0/1     Running     0          9s
-node-ca-27wlv                                      1/1     Running     1          14h
-                                    1/1     Running       1          21d
+laptop ~ % oc patch configs.imageregistry.operator.openshift.io cluster --type merge --patch '{"spec":{"managementState":"Managed"}}'
+config.imageregistry.operator.openshift.io/cluster patched
+```
+
+The image registry is running:
+```bash
+laptop ~ % oc get pods -n openshift-image-registry    
+NAME                                               READY   STATUS    RESTARTS   AGE
+cluster-image-registry-operator-79ffc48786-crfkc   1/1     Running   0          57m
+image-registry-749f6bf957-2jqtj                    1/1     Running   0          87s
+node-ca-nsknt                                      1/1     Running   0          41m
 ```
 
 ## Blacklist the inbox drivers with a MachineConfig
 
-We have by default the inbox amd drivers loaded:
+We have, by default, the inbox amd drivers loaded:
 
 ```bash
-[core@worker0 ~]$ lsmod | grep amd
+laptop ~ % oc debug node/worker0.example.com            
+
+sh-4.4# chroot /host
+
+sh-5.1# lsmod | grep amd
 amdgpu               9494528  0
 iommu_v2               24576  1 amdgpu
 gpu_sched              49152  1 amdgpu
 drm_buddy              20480  1 amdgpu
 drm_display_helper    172032  1 amdgpu
 drm_ttm_helper         16384  1 amdgpu
-ttm                    90112  2 amdgpu,drm_ttm_helper
 i2c_algo_bit           16384  2 mgag200,amdgpu
+ttm                    90112  2 amdgpu,drm_ttm_helper
 drm_kms_helper        192512  5 drm_display_helper,mgag200,amdgpu
 drm                   581632  10 gpu_sched,drm_kms_helper,drm_shmem_helper,drm_display_helper,mgag200,drm_buddy,amdgpu,drm_ttm_helper,ttm
 ```
 
 No /etc/modprobe.d/amdgpu-blacklist.conf file created for now:
 ```bash
-[core@worker0 ~]$ ls /etc/modprobe.d/amdgpu-blacklist.conf
+sh-5.1# ls /etc/modprobe.d/amdgpu-blacklist.conf
 ls: cannot access '/etc/modprobe.d/amdgpu-blacklist.conf': No such file or directory
+
+sh-5.1# exit
+exit
+
+sh-4.4# exit
+exit
+
+Removing debug pod ...
 ```
 
-We prepare the 1-blacklist.yml yaml file:
+We prepare the `1-blacklist.yml` yaml file. You should set `master` for the label `machineconfiguration.openshift.io/role` if you run Single Node OpenShift or `worker` in other scenarios with dedicated controllers.
 ```bash
 laptop ~ % cat <<EOF > 1-blacklist.yml  
 apiVersion: machineconfiguration.openshift.io/v1
@@ -120,104 +141,112 @@ spec:
 EOF
 ```
 
-We apply the blacklist Machine Config for the inbox GPU driver:
-
+We apply the blacklist Machine Config for the inbox AMD GPU driver:
 ```bash
 laptop ~ % oc apply -f 1-blacklist.yml
 machineconfig.machineconfiguration.openshift.io/amdgpu-module-blacklist created
 ```
 
-The MachineConfig will trigger a reboot.
-After the reboot, we can connect to the node and see that the blacklist file is created:
-
+We can see the machineconfig runnning:
 ```bash
-[core@worker0 ~]$ ls /etc/modprobe.d/amdgpu-blacklist.conf
+laptop ~ % oc get machineconfigs | grep amdgpu-module-blacklist
+amdgpu-module-blacklist                                                                       3.2.0             12s
+```
+
+The MachineConfig will trigger a reboot, you can ping your host to follow the reboot.
+
+After the reboot, we can connect to the node and see that the blacklist file is created:
+```bash
+laptop ~ % oc debug node/worker0.example.com
+
+sh-4.4# chroot /host
+
+sh-5.1# ls /etc/modprobe.d/amdgpu-blacklist.conf
 /etc/modprobe.d/amdgpu-blacklist.conf
 ```
 
 No amd modules are loaded after the reboot:
-
 ```bash
-[core@worker0 ~]$ lsmod | grep amd
-[core@worker0 ~]$
+sh-5.1# lsmod | grep amd
+
+sh-5.1# exit
+exit
+
+sh-4.4# exit
+exit
+
+Removing debug pod ...
 ```
 
-## Install the Kernel Module Management Operator 2.0.1 pre-release
+## Install the Node Feature Discovery Operator
 
-Check the “kernel module management” status before in the catalog configuration.
+In the OpenShift Console, in `Operators` > `OperatorHub` search: `nfd`
+![alt_text](docs/images/nfd1.png)
+
+Click on `Node Feature Discovery Operator` tagged `Red Hat`.
+
+![alt_text](docs/images/nfd2.png)
+
+Click on `Install`.
+
+![alt_text](docs/images/nfd3.png)
+
+Click on `Install`.
+
+![alt_text](docs/images/nfd4.png)
+
+Click on `View Operator`.
+
+Create the NFD instance:
+
+![alt_text](docs/images/nfd5.png)
+
+Click on `Create Instance`.
+
+![alt_text](docs/images/nfd6.png)
+
+Click on `Create`.
+
+The `Node Feature Discovery Operator` is installed.
+
+You can see the NFD label in `Compute` > `Node` > your node > `Details` tab, you should see:
+`feature.node.kubernetes.io/pci-1002.present=true`
+
+![alt_text](docs/images/nfd7.png)
+
+We can also see the label with one oc command:
+```bash
+laptop ~ % oc describe nodes | grep pci-1002.present
+                    feature.node.kubernetes.io/pci-1002.present=true
+```
+
+## Install the Kernel Module Management Operator
 
 ![alt_text](docs/images/kmm1.png)
 
-Prepare the catalog configuration:
-```bash
-laptop ~ % cat <<EOF > 2-catalog-kmm-2.0.1.yml
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: kmm-test
-  namespace: openshift-marketplace
-spec:
-  sourceType: grpc
-  image: quay.io/yshnaidm/kernel-module-management-index:amd-gpu
-  displayName: KMM operator
-  publisher: yshnaidm
-EOF
-```
-
-Apply the KMM 2.0.1 catalog beta source:
-
-```bash
-laptop ~ % oc apply -f 2-catalog-kmm-2.0.1.yml
-catalogsource.operators.coreos.com/kmm-test created
-```
+Click on the `Kernel Module Management` (not the one called `Hub`).
 
 ![alt_text](docs/images/kmm2.png)
-Click on the one tagged “KMM operator”.
+
+Click on `Install`.
 
 ![alt_text](docs/images/kmm3.png)
 
-Click on “Install”.
+Click on `Install`.
 
+The operator is installed:
 ![alt_text](docs/images/kmm4.png)
 
 To verify that the Operator deployment is successful, run the following command:
 ```bash
-laptop ~ % oc get -n openshift-kmm pods         
-NAME                                      READY   STATUS    RESTARTS   AGE
-kmm-operator-controller-85c7998f9-6mtw6   1/1     Running   0          76s
+laptop ~ % oc get -n openshift-kmm pods   
+NAME                                       READY   STATUS    RESTARTS   AGE
+kmm-operator-controller-5f675cdf94-wk2ff   2/2     Running   0          65s
 ```
 
-Kernel Module Management Operator is installed and ready to be used by the AMD GPU Operator.
+The `Kernel Module Management Operator` is installed and ready to be used by the `AMD GPU Operator`.
 
-## Install the Node Feature Discovery Operator
-
-In the OpenShift Console, in Operators > OperatorHub search: “Node Feature Discovery”
-![alt_text](docs/images/nfd1.png)
-
-Click on “Node Feature Discovery”.
-
-![alt_text](docs/images/nfd2.png)
-Click on “install”.
-
-![alt_text](docs/images/nfd3.png)
-Click on “View Operator”.
-
-Create the NFD instance:
-
-![alt_text](docs/images/nfd4.png)
-Click on “Create Instance”.
-
-![alt_text](docs/images/nfd5.png)
-
-You can see the NFD label `feature.node.kubernetes.io/pci-1002.present=true`
-
-We can also see the label with one oc command:
-```bash
-laptop ~ %  oc describe nodes | grep pci-1002.present
-                    feature.node.kubernetes.io/pci-1002.present=true
-```
-
-## Install the AMD-GPU operator
+## Install the AMD GPU operator
 
 Check before:
 ```bash
@@ -225,72 +254,70 @@ laptop ~ % oc get pods -n openshift-amd-gpu
 No resources found in openshift-amd-gpu namespace.
 ```
 
-Node not labeled with “amd.com/gpu” to schedule AMD gpu accelerated pods:
+The worker nodes with AMD GPUs are not labeled, for now, with `amd.com/gpu` to schedule AMD GPU accelerated pods:
 ```bash
 laptop ~ %  oc describe node | egrep "Resource.*Requests|amd.com/gpu"
   Resource           Requests      Limits
 ```
 
 ![alt_text](docs/images/amd-gpu-operator1.png)
-Click on "AMD GPU Operator".
+
+Click on `AMD GPU Operator`.
 
 ![alt_text](docs/images/amd-gpu-operator2.png)
-Click on "Install".
+
+Click on `Continue`.
 
 ![alt_text](docs/images/amd-gpu-operator3.png)
-Click on "Continue".
+
+Click on `Install`.
 
 ![alt_text](docs/images/amd-gpu-operator4.png)
-Click on "Install".
+
+Click on `Install`.
 
 ![alt_text](docs/images/amd-gpu-operator5.png)
-Click on "View Operator".
 
-Check if the operator has created the amd-gpu-operator-controller-manager:
+Click on `View Operator`.
+
+Check if the operator has created the `amd-gpu-operator-controller-manager`:
 ```bash
-laptop ~ %  oc get pods -n openshift-amd-gpu  
-
-NAME                                                  READY   STATUS    RESTARTS   AGE
-amd-gpu-operator-controller-manager-988c47468-f4c9l   2/2     Running   0          2m22s
+laptop ~ % oc get pods -n openshift-amd-gpu  
+NAME                                                   READY   STATUS    RESTARTS   AGE
+amd-gpu-operator-controller-manager-5c58556d57-6xlwt   2/2     Running   0          80s
 ```
 
 ![alt_text](docs/images/amd-gpu-operator6.png)
-Click on "Create instance".
+
+Click on `Create instance`.
 
 ![alt_text](docs/images/amd-gpu-operator7.png)
-Click on "Create".
 
-A build is starting:
+Click on `Create`.
+
+A build is starting and is building the AMD GPU driver:
 ```bash
-laptop ~ %  oc get pods -n openshift-amd-gpu         
-
-NAME                                                  READY   STATUS    RESTARTS       AGE
-amd-gpu-operator-controller-manager-988c47468-f4c9l   2/2     Running   1 (103s ago)   20m
-dc-internal-registry-build-b5lgj-build                1/1     Running   0              24s
+laptop ~ % oc get pods -n openshift-amd-gpu  
+NAME                                                   READY   STATUS    RESTARTS   AGE
+amd-gpu-operator-controller-manager-5c58556d57-6xlwt   2/2     Running   0          117s
+dc-internal-registry-build-5rltr-build                 1/1     Running   0          37s
 ```
-
-We can follow the AMD driver build:
+We can follow the AMD drivers build logs:
 ```bash
-laptop ~ % oc logs dc-internal-registry-build-b5lgj-build -n openshift-amd-gpu -f
-…
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/dce_v8_0.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/gfx_v7_0.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/cik_sdma.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/uvd_v4_2.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/vce_v2_0.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/si.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/gmc_v6_0.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/gfx_v6_0.o
-  CC [M]  /amdgpu-drivers-source/amd/amdgpu/si_ih.o
+laptop ~ % oc logs dc-internal-registry-build-5rltr-build -n openshift-amd-gpu -f
+...
   CC [M]  /amdgpu-drivers-source/amd/amdgpu/si_dma.o
   CC [M]  /amdgpu-drivers-source/amd/amdgpu/dce_v6_0.o
   CC [M]  /amdgpu-drivers-source/amd/amdgpu/uvd_v3_1.o
+...
+Writing manifest to image destination
+Successfully pushed image-registry.openshift-image-registry.svc:5000/openshift-amd-gpu/amd_gpu_kmm_modules@sha256:a66912cb3c22fe561c1ffbc8e2c5bb5b05199353ff2afaf20390a6412d3bfa68
+Push successful
 ```
 
-You can find the custom schedulable resources:
+You can find the `amd.com/gpu` resources to schedule your AMD-GPU-accelerated pods:
 ```bash
-laptop ~ %  oc describe node | egrep "Resource.*Requests|amd.com/gpu"                               
-
+laptop ~ % oc describe node | egrep "Resource.*Requests|amd.com/gpu"  
   amd.com/gpu:        1
   amd.com/gpu:        1
   Resource           Requests      Limits
@@ -302,7 +329,6 @@ laptop ~ %  oc describe node | egrep "Resource.*Requests|amd.com/gpu"
 ### Test rocm-smi
 
 Prepare the yaml file:
-
 ```
 laptop % cat << EOF > rocm-smi.yaml
 apiVersion: v1
@@ -326,8 +352,7 @@ EOF
 
 Create the rocm-smi pod:
 ```bash
-laptop % oc create -f rocm-smi.yaml
-apiVersion: v1
+laptop ~ % oc create -f rocm-smi.yaml
 pod/rocm-smi created
 ```
 
@@ -335,7 +360,7 @@ Check rocm-smi log with one MI210 GPU:
 ```bash
 laptop ~ % oc get pods
 NAME        READY   STATUS      RESTARTS   AGE
-rocm-smi   0/1     Completed   0          6m28s
+rocm-smi   0/1     Completed   0           40s
 ```
 
 Check the logs:
@@ -346,7 +371,7 @@ laptop ~ % oc logs pod/rocm-smi
 Device  [Model : Revision]    Temp    Power  Partitions      SCLK    MCLK     Fan  Perf  PwrCap  VRAM%  GPU%  
         Name (20 chars)       (Edge)  (Avg)  (Mem, Compute)                                                   
 ==============================================================================================================
-0       [0x0c34 : 0x02]       33.0°C  41.0W  N/A, N/A        800Mhz  1600Mhz  0%   auto  300.0W    0%   0%    
+0       [0x0c34 : 0x02]       32.0°C  38.0W  N/A, N/A        800Mhz  1600Mhz  0%   auto  300.0W    0%   0%    
         Instinct MI210                                                                                        
 ==============================================================================================================
 ============================================ End of ROCm SMI Log =============================================
@@ -386,10 +411,9 @@ apiVersion: v1
 pod/rocminfo created
 ```
 
-Check rocminfo logs with one MI210 GPU:
+Check the rocminfo logs with one MI210 GPU:
 ```bash
-laptop ~ %  oc logs rocminfo | grep -A5 "Agent"
-
+laptop ~ % oc logs rocminfo | grep -A5 "Agent"
 HSA Agents               
 ==========               
 *******                  
@@ -410,9 +434,9 @@ Agent 2
 Agent 3                  
 *******                  
   Name:                    gfx90a                             
-  Uuid:                    GPU-9d0b701f303bba51               
+  Uuid:                    GPU-024b776f768a638b               
   Marketing Name:          AMD Instinct MI210                 
-  Vendor Name:             AMD
+  Vendor Name:             AMD                     
 
 laptop ~ % oc delete -f rocminfo.yaml
 ```
