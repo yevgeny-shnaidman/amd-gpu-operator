@@ -1,6 +1,6 @@
 ARG DRIVERS_VERSION
-FROM quay.io/yshnaidm/amd_gpu_sources:${DRIVERS_VERSION} as sources
 ARG DTK_AUTO
+FROM quay.io/yshnaidm/amd_gpu_sources:${DRIVERS_VERSION} as sources
 FROM ${DTK_AUTO} as builder
 ARG KERNEL_VERSION
 COPY --from=sources /amdgpu-drivers-source /amdgpu-drivers-source
