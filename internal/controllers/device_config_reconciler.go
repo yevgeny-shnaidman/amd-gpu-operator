@@ -203,7 +203,7 @@ func (dcrh *deviceConfigReconcilerHelper) finalizeDeviceConfig(ctx context.Conte
 	nmDS := appsv1.DaemonSet{}
 	namespacedName := types.NamespacedName{
 		Namespace: devConfig.Namespace,
-		Name:      devConfig.Name + "node-metrics",
+		Name:      devConfig.Name + "-node-metrics",
 	}
 
 	err := dcrh.client.Get(ctx, namespacedName, &nmDS)
@@ -293,7 +293,7 @@ func (dcrh *deviceConfigReconcilerHelper) handleNodeLabeller(ctx context.Context
 
 func (dcrh *deviceConfigReconcilerHelper) handleNodeMetrics(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	ds := &appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "node-metrics"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "-node-metrics"},
 	}
 	logger := log.FromContext(ctx)
 	opRes, err := controllerutil.CreateOrPatch(ctx, dcrh.client, ds, func() error {

@@ -63,7 +63,7 @@ var _ = Describe("Reconcile", func() {
 	}
 	req := ctrl.Request{NamespacedName: nn}
 
-	DescribeTable("reconciler error flow", func(getDeviceError, setFinalizerError, buildConfigMapError, handleKMMModuleError bool) {
+	DescribeTable("reconciler error flow", func(getDeviceError, setFinalizerError, buildConfigMapError, handleKMMModuleError, handleMetricsError bool) {
 		devConfig := &amdv1alpha1.DeviceConfig{}
 		if getDeviceError {
 			mockHelper.EXPECT().getRequestedDeviceConfig(ctx, nn).Return(nil, fmt.Errorf("some error"))
@@ -85,22 +85,28 @@ var _ = Describe("Reconcile", func() {
 			goto executeTestFunction
 		}
 		mockHelper.EXPECT().handleKMMModule(ctx, devConfig).Return(nil)
+		if handleMetricsError {
+			mockHelper.EXPECT().handleNodeMetrics(ctx, devConfig).Return(fmt.Errorf("some error"))
+			goto executeTestFunction
+		}
+		mockHelper.EXPECT().handleNodeMetrics(ctx, devConfig).Return(nil)
 
 	executeTestFunction:
 
 		res, err := dcr.Reconcile(ctx, req)
-		if getDeviceError || setFinalizerError || buildConfigMapError || handleKMMModuleError {
+		if getDeviceError || setFinalizerError || buildConfigMapError || handleKMMModuleError || handleMetricsError {
 			Expect(err).To(HaveOccurred())
 		} else {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(res).To(Equal(ctrl.Result{}))
 		}
 	},
-		Entry("good flow, no requeue", false, false, false, false),
-		Entry("getDeviceConfigFailed", true, false, false, false),
-		Entry("setFinalizer failed", false, true, false, false),
-		Entry("buildConfigMapFailed", false, false, true, false),
-		Entry("handleKMMModule failed", false, false, false, true),
+		Entry("good flow, no requeue", false, false, false, false, false),
+		Entry("getDeviceConfigFailed", true, false, false, false, false),
+		Entry("setFinalizer failed", false, true, false, false, false),
+		Entry("buildConfigMap failed", false, false, true, false, false),
+		Entry("handleKMMModule failed", false, false, false, true, false),
+		Entry("handleMetrics failed", false, false, false, false, true),
 	)
 
 	It("device config finalization", func() {
@@ -133,7 +139,7 @@ var _ = Describe("getLabelsPerModules", func() {
 	BeforeEach(func() {
 		ctrl := gomock.NewController(GinkgoT())
 		kubeClient = mock_client.NewMockClient(ctrl)
-		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil)
+		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil, nil, nil)
 	})
 
 	ctx := context.Background()
@@ -178,7 +184,7 @@ var _ = Describe("setFinalizer", func() {
 	BeforeEach(func() {
 		ctrl := gomock.NewController(GinkgoT())
 		kubeClient = mock_client.NewMockClient(ctrl)
-		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil)
+		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil, nil, nil)
 	})
 
 	ctx := context.Background()
@@ -214,7 +220,7 @@ var _ = Describe("finalizeDeviceConfig", func() {
 	BeforeEach(func() {
 		ctrl := gomock.NewController(GinkgoT())
 		kubeClient = mock_client.NewMockClient(ctrl)
-		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil)
+		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil, nil, nil)
 	})
 
 	ctx := context.Background()
@@ -225,28 +231,53 @@ var _ = Describe("finalizeDeviceConfig", func() {
 		},
 	}
 
+	metricsNN := types.NamespacedName{
+		Name:      devConfigName + "-node-metrics",
+		Namespace: devConfigNamespace,
+	}
+
+	nn := types.NamespacedName{
+		Name:      devConfigName,
+		Namespace: devConfigNamespace,
+	}
+
+	It("failed to get Metrics daemonset", func() {
+		kubeClient.EXPECT().Get(ctx, metricsNN, gomock.Any()).Return(fmt.Errorf("some error"))
+
+		err := dcrh.finalizeDeviceConfig(ctx, devConfig)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("node metrics daemonset exists", func() {
+		gomock.InOrder(
+			kubeClient.EXPECT().Get(ctx, metricsNN, gomock.Any()).Return(nil),
+			kubeClient.EXPECT().Delete(ctx, gomock.Any()).Return(nil),
+		)
+
+		err := dcrh.finalizeDeviceConfig(ctx, devConfig)
+		Expect(err).To(BeNil())
+	})
+
 	It("failed to get KMM Module", func() {
-		nn := types.NamespacedName{
-			Name:      devConfigName,
-			Namespace: devConfigNamespace,
-		}
-		kubeClient.EXPECT().Get(ctx, nn, gomock.Any()).Return(fmt.Errorf("some error"))
+		gomock.InOrder(
+			kubeClient.EXPECT().Get(ctx, metricsNN, gomock.Any()).Return(k8serrors.NewNotFound(schema.GroupResource{}, "dsName")),
+			kubeClient.EXPECT().Get(ctx, nn, gomock.Any()).Return(fmt.Errorf("some error")),
+		)
 
 		err := dcrh.finalizeDeviceConfig(ctx, devConfig)
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("KMM module not found, removing finalizer", func() {
-		nn := types.NamespacedName{
-			Name:      devConfigName,
-			Namespace: devConfigNamespace,
-		}
 		expectedDevConfig := devConfig.DeepCopy()
 		expectedDevConfig.SetFinalizers([]string{})
 		controllerutil.AddFinalizer(devConfig, deviceConfigFinalizer)
 
-		kubeClient.EXPECT().Get(ctx, nn, gomock.Any()).Return(k8serrors.NewNotFound(schema.GroupResource{}, "moduleName"))
-		kubeClient.EXPECT().Patch(ctx, expectedDevConfig, gomock.Any()).Return(nil)
+		gomock.InOrder(
+			kubeClient.EXPECT().Get(ctx, metricsNN, gomock.Any()).Return(k8serrors.NewNotFound(schema.GroupResource{}, "dsName")),
+			kubeClient.EXPECT().Get(ctx, nn, gomock.Any()).Return(k8serrors.NewNotFound(schema.GroupResource{}, "moduleName")),
+			kubeClient.EXPECT().Patch(ctx, expectedDevConfig, gomock.Any()).Return(nil),
+		)
 
 		err := dcrh.finalizeDeviceConfig(ctx, devConfig)
 		Expect(err).ToNot(HaveOccurred())
@@ -260,21 +291,20 @@ var _ = Describe("finalizeDeviceConfig", func() {
 			},
 		}
 
-		nn := types.NamespacedName{
-			Name:      devConfigName,
-			Namespace: devConfigNamespace,
-		}
 		expectedDevConfig := devConfig.DeepCopy()
 		expectedDevConfig.SetFinalizers([]string{})
 		controllerutil.AddFinalizer(devConfig, deviceConfigFinalizer)
 
-		kubeClient.EXPECT().Get(ctx, nn, gomock.Any()).Do(
-			func(_ interface{}, _ interface{}, mod *kmmv1beta1.Module, _ ...client.GetOption) {
-				mod.Name = nn.Name
-				mod.Namespace = nn.Namespace
-			},
+		gomock.InOrder(
+			kubeClient.EXPECT().Get(ctx, metricsNN, gomock.Any()).Return(k8serrors.NewNotFound(schema.GroupResource{}, "dsName")),
+			kubeClient.EXPECT().Get(ctx, nn, gomock.Any()).Do(
+				func(_ interface{}, _ interface{}, mod *kmmv1beta1.Module, _ ...client.GetOption) {
+					mod.Name = nn.Name
+					mod.Namespace = nn.Namespace
+				},
+			),
+			kubeClient.EXPECT().Delete(ctx, &mod).Return(nil),
 		)
-		kubeClient.EXPECT().Delete(ctx, &mod).Return(nil)
 
 		err := dcrh.finalizeDeviceConfig(ctx, devConfig)
 		Expect(err).ToNot(HaveOccurred())
@@ -292,7 +322,7 @@ var _ = Describe("handleKMMModule", func() {
 		ctrl := gomock.NewController(GinkgoT())
 		kubeClient = mock_client.NewMockClient(ctrl)
 		kmmHelper = kmmmodule.NewMockKMMModuleAPI(ctrl)
-		dcrh = newDeviceConfigReconcilerHelper(kubeClient, kmmHelper)
+		dcrh = newDeviceConfigReconcilerHelper(kubeClient, kmmHelper, nil, nil)
 	})
 
 	ctx := context.Background()
@@ -353,7 +383,7 @@ var _ = Describe("handleBuildConfigMap", func() {
 		ctrl := gomock.NewController(GinkgoT())
 		kubeClient = mock_client.NewMockClient(ctrl)
 		kmmHelper = kmmmodule.NewMockKMMModuleAPI(ctrl)
-		dcrh = newDeviceConfigReconcilerHelper(kubeClient, kmmHelper)
+		dcrh = newDeviceConfigReconcilerHelper(kubeClient, kmmHelper, nil, nil)
 	})
 
 	ctx := context.Background()
