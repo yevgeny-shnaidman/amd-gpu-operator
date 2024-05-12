@@ -166,7 +166,7 @@ func (dcrh *deviceConfigReconcilerHelper) getRequestedDeviceConfig(ctx context.C
 	devConfig := amdv1alpha1.DeviceConfig{}
 
 	if err := dcrh.client.Get(ctx, namespacedName, &devConfig); err != nil {
-		return nil, fmt.Errorf("failed to get DeviceConfig %s: %v", namespacedName, err)
+		return nil, fmt.Errorf("failed to get DeviceConfig %s: %w", namespacedName, err)
 	}
 	return &devConfig, nil
 }
