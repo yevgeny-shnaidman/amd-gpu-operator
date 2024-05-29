@@ -26,7 +26,9 @@ import (
 	amdv1alpha1 "github.com/yevgeny-shnaidman/amd-gpu-operator/api/v1alpha1"
 	mock_client "github.com/yevgeny-shnaidman/amd-gpu-operator/internal/client"
 	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/kmmmodule"
+	"github.com/yevgeny-shnaidman/amd-gpu-operator/internal/nodemetrics"
 	"go.uber.org/mock/gomock"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -429,6 +431,63 @@ var _ = Describe("handleBuildConfigMap", func() {
 		)
 
 		err := dcrh.handleBuildConfigMap(ctx, devConfig)
+		Expect(err).ToNot(HaveOccurred())
+	})
+})
+
+var _ = Describe("handleNodeMetrics", func() {
+	var (
+		kubeClient        *mock_client.MockClient
+		nodeMetricsHelper *nodemetrics.MockNodeMetrics
+		dcrh              deviceConfigReconcilerHelperAPI
+	)
+
+	BeforeEach(func() {
+		ctrl := gomock.NewController(GinkgoT())
+		kubeClient = mock_client.NewMockClient(ctrl)
+		nodeMetricsHelper = nodemetrics.NewMockNodeMetrics(ctrl)
+		dcrh = newDeviceConfigReconcilerHelper(kubeClient, nil, nil, nodeMetricsHelper)
+	})
+
+	ctx := context.Background()
+	devConfig := &amdv1alpha1.DeviceConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      devConfigName,
+			Namespace: devConfigNamespace,
+		},
+	}
+
+	It("NodeMetrics DaemonSet does not exist", func() {
+		newDS := &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "-node-metrics"},
+		}
+
+		gomock.InOrder(
+			kubeClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(k8serrors.NewNotFound(schema.GroupResource{}, "whatever")),
+			nodeMetricsHelper.EXPECT().SetNodeMetricsAsDesired(newDS, devConfig).Return(nil),
+			kubeClient.EXPECT().Create(ctx, gomock.Any()).Return(nil),
+		)
+
+		err := dcrh.handleNodeMetrics(ctx, devConfig)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("NodeMetrcis DaemonSet exists", func() {
+		existingDS := &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "-node-metrics"},
+		}
+
+		gomock.InOrder(
+			kubeClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Do(
+				func(_ interface{}, _ interface{}, ds *appsv1.DaemonSet, _ ...client.GetOption) {
+					ds.Name = devConfig.Name + "-node-metrics"
+					ds.Namespace = devConfig.Namespace
+				},
+			),
+			nodeMetricsHelper.EXPECT().SetNodeMetricsAsDesired(existingDS, devConfig).Return(nil),
+		)
+
+		err := dcrh.handleNodeMetrics(ctx, devConfig)
 		Expect(err).ToNot(HaveOccurred())
 	})
 })
