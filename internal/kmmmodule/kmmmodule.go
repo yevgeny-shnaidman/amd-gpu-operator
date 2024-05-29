@@ -37,7 +37,7 @@ const (
 	imageFirmwarePath              = "firmwareDir/updates"
 	defaultDevicePluginImage       = "rocm/k8s-device-plugin"
 	defaultDriversImageTemplate    = "image-registry.openshift-image-registry.svc:5000/$MOD_NAMESPACE/amd_gpu_kmm_modules:%s-$KERNEL_VERSION"
-	defaultDriversVersion          = "el9-6.0"
+	defaultDriversVersion          = "el9-6.1.1"
 )
 
 var (
