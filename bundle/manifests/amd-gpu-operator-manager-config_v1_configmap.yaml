@@ -9,7 +9,7 @@ data:
 kind: ConfigMap
 metadata:
   labels:
-    app.kubernetes.io/component: amp-gpu
+    app.kubernetes.io/component: amd-gpu
     app.kubernetes.io/name: amd-gpu
     app.kubernetes.io/part-of: amd-gpu
   name: amd-gpu-operator-manager-config

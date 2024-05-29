@@ -6,9 +6,22 @@ metadata:
     app.kubernetes.io/component: amd-gpu
     app.kubernetes.io/name: amd-gpu
     app.kubernetes.io/part-of: amd-gpu
-  name: amd-gpu-operator-metrics-reader
+  name: amd-gpu-operator-node-labeller
 rules:
-- nonResourceURLs:
-  - /metrics
+- apiGroups:
+  - ""
+  resources:
+  - nodes
   verbs:
+  - watch
   - get
+  - list
+  - update
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
