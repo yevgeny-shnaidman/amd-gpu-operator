@@ -115,13 +115,11 @@ func (r *DeviceConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return res, fmt.Errorf("failed to handle KMM module for DeviceConfig %s: %v", req.NamespacedName, err)
 	}
 
-	/*
-		logger.Info("start node labeller reconciliation")
-		err = r.helper.handleNodeLabeller(ctx, devConfig)
-		if err != nil {
-			return res, fmt.Errorf("failed to handle node labeller for DeviceConfig %s: %v", req.NamespacedName, err)
-		}
-	*/
+	logger.Info("start node labeller reconciliation")
+	err = r.helper.handleNodeLabeller(ctx, devConfig)
+	if err != nil {
+		return res, fmt.Errorf("failed to handle node labeller for DeviceConfig %s: %v", req.NamespacedName, err)
+	}
 
 	logger.Info("start metrics reconciliation")
 	err = r.helper.handleNodeMetrics(ctx, devConfig)
@@ -183,30 +181,30 @@ func (dcrh *deviceConfigReconcilerHelper) setFinalizer(ctx context.Context, devC
 
 func (dcrh *deviceConfigReconcilerHelper) finalizeDeviceConfig(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	logger := log.FromContext(ctx)
-	/*
-		nlDS := appsv1.DaemonSet{}
-		namespacedName := types.NamespacedName{
-			Namespace: devConfig.Namespace,
-			Name:      devConfig.Name + "node-labeller",
-		}
 
-		err := dcrh.client.Get(ctx, namespacedName, &nlDS)
-		if err != nil {
-			if !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("failed to get nodelabeller daemonset %s: %v", namespacedName, err)
-			}
-		} else {
-			logger.Info("deleting nodelabeller daemonset", "daemonset", namespacedName)
-			return dcrh.client.Delete(ctx, &nlDS)
-		}
-	*/
-	nmDS := appsv1.DaemonSet{}
+	nlDS := appsv1.DaemonSet{}
 	namespacedName := types.NamespacedName{
+		Namespace: devConfig.Namespace,
+		Name:      devConfig.Name + "-node-labeller",
+	}
+
+	err := dcrh.client.Get(ctx, namespacedName, &nlDS)
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get nodelabeller daemonset %s: %v", namespacedName, err)
+		}
+	} else {
+		logger.Info("deleting nodelabeller daemonset", "daemonset", namespacedName)
+		return dcrh.client.Delete(ctx, &nlDS)
+	}
+
+	nmDS := appsv1.DaemonSet{}
+	namespacedName = types.NamespacedName{
 		Namespace: devConfig.Namespace,
 		Name:      devConfig.Name + "-node-metrics",
 	}
 
-	err := dcrh.client.Get(ctx, namespacedName, &nmDS)
+	err = dcrh.client.Get(ctx, namespacedName, &nmDS)
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to get nodemetrics daemonset %s: %v", namespacedName, err)
@@ -277,7 +275,7 @@ func (dcrh *deviceConfigReconcilerHelper) handleKMMModule(ctx context.Context, d
 
 func (dcrh *deviceConfigReconcilerHelper) handleNodeLabeller(ctx context.Context, devConfig *amdv1alpha1.DeviceConfig) error {
 	ds := &appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "node-labeller"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: devConfig.Namespace, Name: devConfig.Name + "-node-labeller"},
 	}
 	logger := log.FromContext(ctx)
 	opRes, err := controllerutil.CreateOrPatch(ctx, dcrh.client, ds, func() error {
