@@ -144,11 +144,11 @@ KUSTOMIZE_CONFIG_CRD ?= config/crd
 
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	oc apply -k $(KUSTOMIZE_CONFIG_CRD)
+	kubectl apply -k $(KUSTOMIZE_CONFIG_CRD)
 
 .PHONY: uninstall
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	oc delete -k $(KUSTOMIZE_CONFIG_CRD) --ignore-not-found=$(ignore-not-found)
+	kubectl delete -k $(KUSTOMIZE_CONFIG_CRD) --ignore-not-found=$(ignore-not-found)
 
 KUSTOMIZE_CONFIG_DEFAULT ?= config/default
 KUSTOMIZE_CONFIG_HUB_DEFAULT ?= config/default-hub
@@ -156,12 +156,12 @@ KUSTOMIZE_CONFIG_HUB_DEFAULT ?= config/default-hub
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	oc apply -k $(KUSTOMIZE_CONFIG_DEFAULT)
+	kubectl apply -k $(KUSTOMIZE_CONFIG_DEFAULT)
 	#$(KUSTOMIZE) build config/default > yaml.file
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	oc delete -k $(KUSTOMIZE_CONFIG_DEFAULT) --ignore-not-found=$(ignore-not-found)
+	kubectl delete -k $(KUSTOMIZE_CONFIG_DEFAULT) --ignore-not-found=$(ignore-not-found)
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 .PHONY: controller-gen
